@@ -1,0 +1,264 @@
+.loading-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  color: #fdf6ff;
+  font-size: 1.1rem;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 20px;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.sidebar {
+  background: rgba(15, 18, 35, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 24px;
+  padding: 24px;
+  color: #fdf6ff;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.brand {
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.profile-card {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #ff7bcf, #7b8cff);
+  font-size: 1.3rem;
+}
+
+.profile-card h2,
+.profile-card p {
+  margin: 0;
+}
+
+.sidebar-section h3 {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+  color: #d5bcff;
+}
+
+.sidebar-btn,
+.ghost-btn,
+.secondary-btn,
+.composer button {
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.sidebar-btn:hover,
+.ghost-btn:hover,
+.secondary-btn:hover,
+.composer button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(80, 53, 126, 0.15);
+}
+
+.sidebar-btn {
+  width: 100%;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  background: linear-gradient(135deg, #ff8ac0, #8a96ff);
+  color: white;
+  font-weight: 600;
+}
+
+.secondary-logout {
+  background: linear-gradient(135deg, #5c6aff, #2f2557);
+}
+
+.chat-panel {
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 24px;
+  border: 1px solid rgba(138, 150, 255, 0.2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid #f0e6ff;
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 0.75rem;
+  color: #8a96ff;
+}
+
+.chat-header h1 {
+  margin: 0;
+  font-size: 1.3rem;
+  color: #2f2557;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.ghost-btn {
+  padding: 10px 12px;
+  background: #f7edff;
+  color: #5b3f8e;
+}
+
+.message-list {
+  flex: 1;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.message-bubble {
+  max-width: 72%;
+  padding: 12px 14px;
+  border-radius: 18px;
+  line-height: 1.5;
+}
+
+.message-bubble.me {
+  align-self: flex-end;
+  background: linear-gradient(135deg, #ff8ac0, #8a96ff);
+  color: white;
+}
+
+.message-bubble.her {
+  align-self: flex-start;
+  background: #f4ebff;
+  color: #3b2e5d;
+}
+
+.call-banner {
+  margin: 0 24px 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: #fff4d8;
+  color: #7a4a00;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.call-banner p {
+  margin: 2px 0 0;
+}
+
+.call-preview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 0 24px 16px;
+}
+
+.preview-card {
+  background: #f7f2ff;
+  border: 1px solid #e7dcff;
+  border-radius: 16px;
+  padding: 14px;
+  min-height: 180px;
+}
+
+.preview-card h3 {
+  margin: 0 0 10px;
+  color: #4e3b73;
+}
+
+.preview-card video,
+.preview-placeholder {
+  width: 100%;
+  height: 120px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #2f2557, #5f4ecb);
+}
+
+.preview-placeholder {
+  display: grid;
+  place-items: center;
+  color: #fdf6ff;
+  font-size: 0.95rem;
+}
+
+.call-error {
+  margin: 0 24px 16px;
+  color: #b42318;
+  font-size: 0.95rem;
+}
+
+.secondary-btn {
+  padding: 10px 12px;
+  background: #ff8f5a;
+  color: white;
+}
+
+.composer {
+  display: flex;
+  gap: 10px;
+  padding: 16px 24px 24px;
+}
+
+.composer input {
+  flex: 1;
+  border: 1px solid #e7dcff;
+  border-radius: 999px;
+  padding: 12px 14px;
+  outline: none;
+}
+
+.composer input:focus {
+  border-color: #8a96ff;
+  box-shadow: 0 0 0 3px rgba(138, 150, 255, 0.16);
+}
+
+.composer button {
+  padding: 0 16px;
+  background: linear-gradient(135deg, #ff8ac0, #8a96ff);
+  color: white;
+  font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    order: 2;
+  }
+}
