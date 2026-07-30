@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { onAuthStateChanged, signInAnonymously, signOut as firebaseSignOut } from 'firebase/auth'
-import { auth } from './firebase'
+import { auth, firebaseReady } from './firebase'
 import App from './App'
 
 function AuthGate({ children }) {
@@ -9,7 +9,8 @@ function AuthGate({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!auth) {
+    if (!auth || !firebaseReady) {
+      setUser({ uid: 'demo-user' })
       setLoading(false)
       return
     }
@@ -23,19 +24,19 @@ function AuthGate({ children }) {
   }, [])
 
   useEffect(() => {
-    if (!auth || user) {
+    if (!auth || !firebaseReady || user) {
       return
     }
 
-    signInAnonymously(auth).catch(() => {})
-  }, [auth, user])
+    signInAnonymously(auth)
+      .catch(() => {
+        setUser({ uid: 'demo-user' })
+        setLoading(false)
+      })
+  }, [auth, firebaseReady, user])
 
   if (loading) {
     return <div className="loading-screen">Connecting your private chat...</div>
-  }
-
-  if (!user) {
-    return <div className="loading-screen">Preparing secure sign-in...</div>
   }
 
   return children
