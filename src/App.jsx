@@ -23,6 +23,7 @@ const pcConfig = {
 }
 
 const getMessagesApiUrl = (roomId) => `/api/messages?room=${encodeURIComponent(roomId)}`
+const getCallsApiUrl = (roomId) => `/api/calls?room=${encodeURIComponent(roomId)}`
 
 async function syncMessagesFromApi(roomId) {
   try {
@@ -184,10 +185,11 @@ function App() {
 
     const payload = {
       ...signal,
+      id: signal.id || `${profile.name}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       senderId: profile.name,
       senderName: profile.name,
       roomId: normalizedRoomId,
-      createdAt: serverTimestamp(),
+      createdAt: db && firebaseReady ? serverTimestamp() : new Date().toISOString(),
     }
 
     if (db && firebaseReady) {
@@ -198,12 +200,29 @@ function App() {
     if (channelRef.current) {
       channelRef.current.postMessage({ type: 'signal', roomId: normalizedRoomId, signal: payload })
     }
+
+    try {
+      await fetch('/api/calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId: normalizedRoomId, signal: payload }),
+      })
+    } catch (error) {
+      console.error('Unable to send call signal', error)
+    }
   }
 
   const handleIncomingSignal = async (signal) => {
     if (!signal || signal.senderId === profile.name) {
       return
     }
+
+    const signalKey = signal.id || `${signal.senderId || 'unknown'}-${signal.createdAt || Date.now()}`
+    if (processedSignalsRef.current.has(signalKey)) {
+      return
+    }
+
+    processedSignalsRef.current.add(signalKey)
 
     if (!peerConnectionRef.current) {
       await createPeerConnection(signal.mode || 'voice')
@@ -352,6 +371,47 @@ function App() {
 
     return () => unsubscribe()
   }, [profile.name, normalizedRoomId])
+
+  useEffect(() => {
+    if (!profile.name || (db && firebaseReady)) {
+      return undefined
+    }
+
+    let cancelled = false
+
+    const pollSignals = async () => {
+      try {
+        const response = await fetch(getCallsApiUrl(normalizedRoomId))
+        if (!response.ok) {
+          return
+        }
+
+        const nextSignals = await response.json()
+        if (!Array.isArray(nextSignals)) {
+          return
+        }
+
+        nextSignals.forEach((signal) => {
+          if (!cancelled) {
+            void handleIncomingSignal(signal)
+          }
+        })
+      } catch {
+        // Polling will retry automatically on the next interval.
+      }
+    }
+
+    void pollSignals()
+
+    const intervalId = window.setInterval(() => {
+      void pollSignals()
+    }, 1400)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(intervalId)
+    }
+  }, [profile.name, normalizedRoomId, db, firebaseReady])
 
   useEffect(() => {
     return () => {
