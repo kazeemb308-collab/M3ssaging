@@ -6,6 +6,71 @@
   font-size: 1.1rem;
 }
 
+.auth-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.auth-card {
+  width: min(100%, 480px);
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 24px;
+  padding: 32px;
+  box-shadow: 0 24px 60px rgba(15, 18, 35, 0.18);
+}
+
+.auth-card h1 {
+  margin: 12px 0 8px;
+  color: #2f2557;
+  font-size: 1.7rem;
+}
+
+.auth-copy,
+.helper-text {
+  color: #5f5780;
+  line-height: 1.6;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 20px 0 12px;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-weight: 600;
+  color: #4e3b73;
+}
+
+.input-group input {
+  border: 1px solid #e7dcff;
+  border-radius: 999px;
+  padding: 12px 14px;
+  outline: none;
+}
+
+.input-group input:focus {
+  border-color: #8a96ff;
+  box-shadow: 0 0 0 3px rgba(138, 150, 255, 0.16);
+}
+
+.auth-btn {
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  padding: 12px 16px;
+  margin-top: 6px;
+  background: linear-gradient(135deg, #ff8ac0, #8a96ff);
+  color: white;
+  font-weight: 700;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: 280px 1fr;
@@ -152,6 +217,13 @@
   line-height: 1.5;
 }
 
+.message-meta {
+  font-size: 0.75rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+  opacity: 0.8;
+}
+
 .message-bubble.me {
   align-self: flex-end;
   background: linear-gradient(135deg, #ff8ac0, #8a96ff);
@@ -162,6 +234,14 @@
   align-self: flex-start;
   background: #f4ebff;
   color: #3b2e5d;
+}
+
+.message-bubble.system {
+  align-self: center;
+  max-width: 90%;
+  background: #f7f2ff;
+  color: #5f5780;
+  text-align: center;
 }
 
 .call-banner {
