@@ -25,7 +25,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { roomId, message, senderId, senderName } = req.body || {}
+    const { roomId, message, senderId, senderName, messageType, attachment } = req.body || {}
     const normalizedRoomId = normalizeRoomId(roomId)
     const existingMessages = getRoomMessages(normalizedRoomId)
     const nextMessage = {
@@ -33,10 +33,12 @@ export default async function handler(req, res) {
       senderId: senderId || 'unknown',
       senderName: senderName || 'Unknown',
       text: String(message || '').trim(),
+      messageType: String(messageType || 'text'),
+      attachment: attachment || null,
     }
 
-    if (!nextMessage.text) {
-      res.status(400).json({ error: 'Message text is required' })
+    if (!nextMessage.text && !nextMessage.attachment) {
+      res.status(400).json({ error: 'Message text or attachment is required' })
       return
     }
 
