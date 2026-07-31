@@ -176,6 +176,10 @@ function App() {
     if (channelRef.current) {
       channelRef.current.postMessage({ type: 'message-sync', roomId, messages: mergedMessages })
     }
+
+    window.requestAnimationFrame(() => {
+      scrollToBottom()
+    })
   }
 
   const sendReadReceipt = async (messageIds) => {
@@ -336,6 +340,22 @@ function App() {
     }
   }
 
+  const getRecorderMimeType = () => {
+    if (typeof window === 'undefined' || typeof window.MediaRecorder === 'undefined') {
+      return 'audio/webm'
+    }
+
+    if (window.MediaRecorder.isTypeSupported?.('audio/mp4')) {
+      return 'audio/mp4'
+    }
+
+    if (window.MediaRecorder.isTypeSupported?.('audio/webm;codecs=opus')) {
+      return 'audio/webm;codecs=opus'
+    }
+
+    return 'audio/webm'
+  }
+
   const stopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop()
@@ -367,7 +387,8 @@ function App() {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-      const mediaRecorder = new window.MediaRecorder(stream)
+      const recorderMimeType = getRecorderMimeType()
+      const mediaRecorder = new window.MediaRecorder(stream, recorderMimeType ? { mimeType: recorderMimeType } : undefined)
       mediaRecorderRef.current = mediaRecorder
       audioChunksRef.current = []
       setIsRecording(true)
@@ -381,14 +402,6 @@ function App() {
         }
       }
 
-      mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
-        const audioUrl = URL.createObjectURL(audioBlob)
-        setRecordedAudioUrl(audioUrl)
-        setVoiceMessageStatus('Recorded')
-        stream.getTracks().forEach((track) => track.stop())
-      }
-
       mediaRecorder.start()
       const startTime = Date.now()
       const interval = window.setInterval(() => {
@@ -396,7 +409,7 @@ function App() {
       }, 500)
 
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        const audioBlob = new Blob(audioChunksRef.current, { type: recorderMimeType || 'audio/webm' })
         const audioUrl = URL.createObjectURL(audioBlob)
         setRecordedAudioBlob(audioBlob)
         setRecordedAudioUrl(audioUrl)
@@ -484,8 +497,9 @@ function App() {
       return
     }
 
+    const isMp4Voice = recordedAudioBlob.type.includes('mp4')
     const attachment = {
-      name: `voice-${Date.now()}.webm`,
+      name: `voice-${Date.now()}${isMp4Voice ? '.m4a' : '.webm'}`,
       type: recordedAudioBlob.type,
       data: await new Promise((resolve) => {
         const reader = new FileReader()
@@ -1052,14 +1066,22 @@ function App() {
                   {message.text}
                   {message.attachment ? (
                     message.messageType === 'image' ? (
-                      <img
-                        className="message-image"
-                        src={message.attachment.data}
-                        alt={message.attachment.name}
-                        onClick={() => openLightboxImage(message.attachment.data, message.attachment.name)}
-                      />
+                      <div className="attachment-preview">
+                        <img
+                          className="message-image"
+                          src={message.attachment.data}
+                          alt={message.attachment.name}
+                        />
+                        <button
+                          className="photo-view-btn"
+                          type="button"
+                          onClick={() => openLightboxImage(message.attachment.data, message.attachment.name)}
+                        >
+                          View photo
+                        </button>
+                      </div>
                     ) : message.messageType === 'audio' ? (
-                      <audio controls src={message.attachment.data} />
+                      <audio controls playsInline preload="metadata" src={message.attachment.data} />
                     ) : message.messageType === 'video' ? (
                       <video className="message-video" controls src={message.attachment.data} />
                     ) : (
@@ -1096,6 +1118,9 @@ function App() {
             <div className="lightbox-content" onClick={(event) => event.stopPropagation()}>
               <button className="lightbox-close" type="button" onClick={closeLightboxImage} aria-label="Close image view">✕</button>
               <img src={lightboxImage.src} alt={lightboxImage.alt} />
+              <a className="lightbox-download" href={lightboxImage.src} download={lightboxImage.alt || 'photo'}>
+                Save photo
+              </a>
             </div>
           </div>
         ) : null}
