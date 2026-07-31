@@ -68,11 +68,14 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [recordedAudioUrl, setRecordedAudioUrl] = useState(null)
+  const [recordedAudioBlob, setRecordedAudioBlob] = useState(null)
   const [recordingDuration, setRecordingDuration] = useState(0)
 
   const channelRef = useRef(null)
   const messageListRef = useRef(null)
   const mediaRecorderRef = useRef(null)
+  const recordingIntervalRef = useRef(null)
+  const prevMessageRef = useRef(null)
   const audioChunksRef = useRef([])
   const fileInputRef = useRef(null)
 
@@ -108,16 +111,17 @@ function App() {
   }
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current) {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop()
+      setIsRecording(false)
+      setVoiceMessageStatus('Processing')
     }
-    setIsRecording(false)
-    setVoiceMessageStatus('Ready')
   }
 
   const startRecording = async () => {
     setRecordingError('')
     if (isRecording) {
+      stopRecording()
       return
     }
 
@@ -154,10 +158,12 @@ function App() {
       mediaRecorder.onstop = () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
         const audioUrl = URL.createObjectURL(audioBlob)
+        setRecordedAudioBlob(audioBlob)
         setRecordedAudioUrl(audioUrl)
         setVoiceMessageStatus('Recorded')
         stream.getTracks().forEach((track) => track.stop())
         window.clearInterval(interval)
+        recordingIntervalRef.current = null
       }
     } catch (error) {
       console.error(error)
@@ -230,18 +236,17 @@ function App() {
   }
 
   const sendVoiceMessage = async () => {
-    if (!recordedAudioUrl || !audioChunksRef.current.length) {
+    if (!recordedAudioUrl || !recordedAudioBlob) {
       return
     }
 
-    const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
     const attachment = {
       name: `voice-${Date.now()}.webm`,
-      type: audioBlob.type,
+      type: recordedAudioBlob.type,
       data: await new Promise((resolve) => {
         const reader = new FileReader()
         reader.onload = () => resolve(reader.result)
-        reader.readAsDataURL(audioBlob)
+        reader.readAsDataURL(recordedAudioBlob)
       }),
     }
 
@@ -256,6 +261,7 @@ function App() {
 
     const nextMessages = [...messages, nextMessage]
     saveMessages(nextMessages, normalizedRoomId)
+    setRecordedAudioBlob(null)
     setRecordedAudioUrl(null)
     setVoiceMessageStatus('Ready')
     setRecordingDuration(0)
@@ -378,6 +384,48 @@ function App() {
   }, [messages])
 
   useEffect(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      return
+    }
+
+    if (Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {})
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      return
+    }
+
+    if (!messages.length || !profile.name) {
+      prevMessageRef.current = messages[messages.length - 1] || null
+      return
+    }
+
+    const lastMessage = messages[messages.length - 1]
+    if (!lastMessage || prevMessageRef.current?.id === lastMessage.id) {
+      return
+    }
+
+    if (lastMessage.senderId !== profile.name && Notification.permission === 'granted') {
+      const messageText = lastMessage.text || 'New message'
+      const notificationBody = lastMessage.messageType === 'audio'
+        ? 'Voice message received'
+        : lastMessage.messageType === 'image'
+          ? 'Photo received'
+          : messageText
+
+      new Notification(lastMessage.senderName || 'New message', {
+        body: notificationBody,
+        silent: true,
+      })
+    }
+
+    prevMessageRef.current = lastMessage
+  }, [messages, profile.name])
+
+  useEffect(() => {
     return () => {
       channelRef.current?.close()
       channelRef.current = null
@@ -415,6 +463,7 @@ function App() {
     setIsSignedUp(false)
     setMessages(demoMessages)
     setDraft('')
+    setRecordedAudioBlob(null)
     setRecordedAudioUrl(null)
     setVoiceMessageStatus('Ready')
     setRecordingDuration(0)
@@ -533,7 +582,7 @@ function App() {
             <div className="top-nav-identity">
               <span>{profile.partnerName || 'Private room'}</span>
               <button className="ghost-btn" onClick={startRecording}>
-                🎙️ Record voice
+                {isRecording ? '⏹️ Stop recording' : '🎙️ Record voice'}
               </button>
               <button className="ghost-btn settings-btn" onClick={toggleSettings} aria-label="Open settings">
                 ⚙️
