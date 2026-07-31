@@ -25,7 +25,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { roomId, message, senderId, senderName, messageType, attachment } = req.body || {}
+    const { roomId, message, senderId, senderName, messageType, attachment, timestamp } = req.body || {}
     const normalizedRoomId = normalizeRoomId(roomId)
     const existingMessages = getRoomMessages(normalizedRoomId)
     const nextMessage = {
@@ -35,6 +35,7 @@ export default async function handler(req, res) {
       text: String(message || '').trim(),
       messageType: String(messageType || 'text'),
       attachment: attachment || null,
+      timestamp: typeof timestamp === 'number' ? timestamp : Date.now(),
     }
 
     if (!nextMessage.text && !nextMessage.attachment) {

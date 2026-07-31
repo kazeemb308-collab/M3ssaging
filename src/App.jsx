@@ -70,15 +70,44 @@ function App() {
   const [recordedAudioUrl, setRecordedAudioUrl] = useState(null)
   const [recordedAudioBlob, setRecordedAudioBlob] = useState(null)
   const [recordingDuration, setRecordingDuration] = useState(0)
+  const [lightboxImage, setLightboxImage] = useState(null)
+  const [peerTyping, setPeerTyping] = useState(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
 
   const channelRef = useRef(null)
+  const typingTimeoutRef = useRef(null)
   const messageListRef = useRef(null)
   const mediaRecorderRef = useRef(null)
   const recordingIntervalRef = useRef(null)
   const prevMessageRef = useRef(null)
   const audioChunksRef = useRef([])
   const fileInputRef = useRef(null)
+  const messageInputRef = useRef(null)
+
+  const syncMessageInputHeight = () => {
+    const input = messageInputRef.current
+    if (!input) {
+      return
+    }
+
+    input.style.height = 'auto'
+    input.style.height = `${Math.min(input.scrollHeight, 120)}px`
+  }
+
+  useEffect(() => {
+    syncMessageInputHeight()
+  }, [draft])
+
+  useEffect(() => {
+    if (isSignedUp) {
+      window.requestAnimationFrame(() => {
+        if (messageInputRef.current) {
+          messageInputRef.current.focus()
+          syncMessageInputHeight()
+        }
+      })
+    }
+  }, [isSignedUp])
 
   const scrollToBottom = () => {
     if (!messageListRef.current) {
@@ -112,6 +141,29 @@ function App() {
     }
   }
 
+  const sendTypingUpdate = (isTyping) => {
+    if (!channelRef.current || !profile.name) {
+      return
+    }
+
+    channelRef.current.postMessage({
+      type: 'typing',
+      roomId: normalizedRoomId,
+      senderId: profile.name,
+      isTyping,
+    })
+  }
+
+  const scheduleTypingTimeout = () => {
+    if (typingTimeoutRef.current) {
+      window.clearTimeout(typingTimeoutRef.current)
+    }
+
+    typingTimeoutRef.current = window.setTimeout(() => {
+      setPeerTyping(false)
+    }, 2200)
+  }
+
   const saveProfile = (nextProfile) => {
     setProfile(nextProfile)
     setFormValues({
@@ -133,13 +185,13 @@ function App() {
     if ('serviceWorker' in navigator) {
       const registration = await navigator.serviceWorker.getRegistration()
       if (registration) {
-        registration.showNotification(title, { silent: true, ...options })
+        registration.showNotification(title, { ...options })
         return
       }
     }
 
     try {
-      new Notification(title, { silent: true, ...options })
+      new Notification(title, { ...options })
     } catch {
       // ignore notification errors
     }
@@ -158,6 +210,14 @@ function App() {
         })
       }
     }
+  }
+
+  const openLightboxImage = (src, alt) => {
+    setLightboxImage({ src, alt })
+  }
+
+  const closeLightboxImage = () => {
+    setLightboxImage(null)
   }
 
   const playNotificationSound = () => {
@@ -272,6 +332,7 @@ function App() {
         text: file.type.startsWith('image/') ? '📷 Image' : file.type.startsWith('video/') ? '🎬 Video' : '📎 File',
         messageType: file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file',
         attachment,
+        timestamp: Date.now(),
       }
 
       const nextMessages = [...messages, nextMessage]
@@ -334,6 +395,7 @@ function App() {
       text: '🎤 Voice message',
       messageType: 'audio',
       attachment,
+      timestamp: Date.now(),
     }
 
     const nextMessages = [...messages, nextMessage]
@@ -362,6 +424,7 @@ function App() {
           senderName: profile.name,
           messageType: nextMessage.messageType,
           attachment,
+          timestamp: nextMessage.timestamp,
         }),
       })
 
@@ -381,11 +444,13 @@ function App() {
       return
     }
 
+    let unsubscribeFirebase = null
+
     if (db && firebaseReady) {
       const messagesRef = collection(db, 'rooms', normalizedRoomId, 'messages')
       const q = query(messagesRef, orderBy('createdAt', 'asc'))
 
-      const unsubscribe = onSnapshot(q, (snapshot) => {
+      unsubscribeFirebase = onSnapshot(q, (snapshot) => {
         const nextMessages = snapshot.docs.map((doc) => ({
           id: doc.id,
           senderId: doc.data().senderId || 'unknown',
@@ -393,12 +458,11 @@ function App() {
           text: doc.data().text || '',
           messageType: doc.data().messageType || 'text',
           attachment: doc.data().attachment || null,
+          timestamp: doc.data().timestamp || doc.data().createdAt?.toMillis?.() || Date.now(),
         }))
 
         setMessages(nextMessages)
       })
-
-      return () => unsubscribe()
     }
 
     const loadMessages = async () => {
@@ -416,11 +480,15 @@ function App() {
 
       const remoteMessages = await syncMessagesFromApi(normalizedRoomId)
       if (remoteMessages.length > 0) {
+        const normalizedRemoteMessages = remoteMessages.map((message) => ({
+          ...message,
+          timestamp: message.timestamp || Date.now(),
+        }))
         const savedMessages = window.localStorage.getItem(`m3ssaging-messages:${normalizedRoomId}`)
         const existingMessages = savedMessages ? JSON.parse(savedMessages) : []
-        if (remoteMessages.length >= (Array.isArray(existingMessages) ? existingMessages.length : 0)) {
-          setMessages(remoteMessages)
-          window.localStorage.setItem(`m3ssaging-messages:${normalizedRoomId}`, JSON.stringify(remoteMessages))
+        if (normalizedRemoteMessages.length >= (Array.isArray(existingMessages) ? existingMessages.length : 0)) {
+          setMessages(normalizedRemoteMessages)
+          window.localStorage.setItem(`m3ssaging-messages:${normalizedRoomId}`, JSON.stringify(normalizedRemoteMessages))
         }
       }
     }
@@ -440,12 +508,25 @@ function App() {
     channelRef.current = channel
 
     channel.onmessage = (event) => {
-      if (event.data.type === 'message-sync' && event.data.roomId === normalizedRoomId) {
+      if (event.data.roomId !== normalizedRoomId) {
+        return
+      }
+
+      if (event.data.type === 'message-sync') {
         setMessages(event.data.messages)
+        return
+      }
+
+      if (event.data.type === 'typing' && event.data.senderId !== profile.name) {
+        setPeerTyping(event.data.isTyping)
+        if (event.data.isTyping) {
+          scheduleTypingTimeout()
+        }
       }
     }
 
     return () => {
+      unsubscribeFirebase?.()
       window.clearInterval(intervalId)
       channel.close()
     }
@@ -498,12 +579,10 @@ function App() {
           : messageText
 
       playNotificationSound()
-
-      if (Notification.permission === 'granted') {
-        void showNotification(lastMessage.senderName || 'New message', {
-          body: notificationBody,
-        })
-      }
+      void showNotification(lastMessage.senderName || 'New message', {
+        body: notificationBody,
+        icon: '/favicon.ico',
+      })
     }
 
     prevMessageRef.current = lastMessage
@@ -539,6 +618,13 @@ function App() {
       },
     ])
     setDraft('')
+
+    window.requestAnimationFrame(() => {
+      if (messageInputRef.current) {
+        messageInputRef.current.focus()
+        syncMessageInputHeight()
+      }
+    })
   }
 
   const handleSignOut = () => {
@@ -558,7 +644,9 @@ function App() {
   }
 
   const sendMessage = async (event) => {
-    event.preventDefault()
+    if (event?.preventDefault) {
+      event.preventDefault()
+    }
 
     if (!draft.trim() || !profile.name) {
       return
@@ -570,11 +658,22 @@ function App() {
       senderId: profile.name,
       senderName: profile.name,
       text: trimmedMessage,
+      timestamp: Date.now(),
     }
 
     const nextMessages = [...messages, nextMessage]
     saveMessages(nextMessages, normalizedRoomId)
     setDraft('')
+    sendTypingUpdate(false)
+
+    window.requestAnimationFrame(() => {
+      if (messageInputRef.current) {
+        messageInputRef.current.focus()
+        const length = messageInputRef.current.value.length
+        messageInputRef.current.setSelectionRange(length, length)
+        syncMessageInputHeight()
+      }
+    })
 
     if (db && firebaseReady) {
       await addDoc(collection(db, 'rooms', normalizedRoomId, 'messages'), {
@@ -582,6 +681,7 @@ function App() {
         senderId: profile.name,
         senderName: profile.name,
         createdAt: serverTimestamp(),
+        timestamp: Date.now(),
       })
       return
     }
@@ -595,6 +695,8 @@ function App() {
           message: trimmedMessage,
           senderId: profile.name,
           senderName: profile.name,
+          messageType: 'text',
+          timestamp: nextMessage.timestamp,
         }),
       })
 
@@ -665,9 +767,6 @@ function App() {
             </div>
             <div className="top-nav-identity">
               <span>{profile.partnerName || 'Private room'}</span>
-              <button className="ghost-btn" onClick={startRecording}>
-                {isRecording ? '⏹️ Stop recording' : '🎙️ Record voice'}
-              </button>
               <button className="ghost-btn settings-btn" onClick={toggleSettings} aria-label="Open settings">
                 ⚙️
               </button>
@@ -760,9 +859,12 @@ function App() {
                   {message.text}
                   {message.attachment ? (
                     message.messageType === 'image' ? (
-                      <a href={message.attachment.data} target="_blank" rel="noreferrer noopener">
-                        <img className="message-image" src={message.attachment.data} alt={message.attachment.name} />
-                      </a>
+                      <img
+                        className="message-image"
+                        src={message.attachment.data}
+                        alt={message.attachment.name}
+                        onClick={() => openLightboxImage(message.attachment.data, message.attachment.name)}
+                      />
                     ) : message.messageType === 'audio' ? (
                       <audio controls src={message.attachment.data} />
                     ) : message.messageType === 'video' ? (
@@ -771,11 +873,28 @@ function App() {
                       <a className="attachment-link" href={message.attachment.data} download={message.attachment.name}>{message.attachment.name}</a>
                     )
                   ) : null}
+                  <div className="message-timestamp">
+                    {message.timestamp ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                  </div>
                 </div>
               </article>
             )
           })}
+          {peerTyping ? (
+            <div className="typing-indicator">
+              {profile.partnerName || 'Partner'} is typing...
+            </div>
+          ) : null}
         </section>
+
+        {lightboxImage ? (
+          <div className="lightbox-overlay" onClick={closeLightboxImage}>
+            <div className="lightbox-content" onClick={(event) => event.stopPropagation()}>
+              <button className="lightbox-close" type="button" onClick={closeLightboxImage} aria-label="Close image view">✕</button>
+              <img src={lightboxImage.src} alt={lightboxImage.alt} />
+            </div>
+          </div>
+        ) : null}
 
         <form className="composer" onSubmit={sendMessage}>
           {showScrollToBottom ? (
@@ -799,20 +918,47 @@ function App() {
           <button className="composer-action" type="button" onClick={() => fileInputRef.current?.click()}>
             📎
           </button>
-          <button className="composer-action" type="button" onClick={startRecording}>
-            🎤
+          <button
+            className="composer-action"
+            type="button"
+            onClick={startRecording}
+            aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+          >
+            {isRecording ? '⬇️ Stop' : '🎤'}
           </button>
-          <input
-            type="text"
+            <textarea
+            ref={messageInputRef}
+            rows={1}
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              setDraft(event.target.value)
+              syncMessageInputHeight()
+              sendTypingUpdate(true)
+            }}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault()
+              if (event.key !== 'Enter') {
+                return
               }
+
+              if (event.metaKey || event.ctrlKey) {
+                event.preventDefault()
+                sendMessage(event)
+                return
+              }
+
+              // Allow Enter to insert a new paragraph.
+            }}
+            onFocus={syncMessageInputHeight}
+            onInput={(event) => {
+              syncMessageInputHeight()
+              sendTypingUpdate(true)
             }}
             placeholder="Type a message..."
             aria-label="message input"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck="false"
+            inputMode="text"
           />
           <button type="submit">Send</button>
         </form>
