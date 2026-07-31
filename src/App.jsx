@@ -69,6 +69,7 @@ function App() {
   const [channelReady, setChannelReady] = useState(false)
   const [pendingIncomingCall, setPendingIncomingCall] = useState(null)
   const [isMuted, setIsMuted] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const peerConnectionRef = useRef(null)
   const localStreamRef = useRef(null)
@@ -80,6 +81,8 @@ function App() {
   const messageListRef = useRef(null)
 
   const normalizedRoomId = (profile.roomId || 'couple-room').trim().toLowerCase().replace(/\s+/g, '-') || 'couple-room'
+
+  const toggleSettings = () => setSettingsOpen((current) => !current)
 
   const saveMessages = (nextMessages, roomId) => {
     setMessages(nextMessages)
@@ -632,33 +635,6 @@ function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">M3ssaging</div>
-        <div className="profile-card">
-          <div className="avatar">💕</div>
-          <div>
-            <h2>{profile.name}</h2>
-            <p>{profile.partnerName ? `Chatting with ${profile.partnerName}` : 'Private and secure'}</p>
-          </div>
-        </div>
-
-        <div className="sidebar-section">
-          <h3>Quick actions</h3>
-          <button className="sidebar-btn" onClick={() => startCall()}>
-            🎙️ Start voice call
-          </button>
-          <button className="sidebar-btn secondary-logout" onClick={handleSignOut}>
-            ↪ Sign out
-          </button>
-        </div>
-
-        <div className="status-box">
-          <div className="status-pill">{firebaseReady ? 'Cloud synced' : 'Local mode'}</div>
-          <p>Room: {normalizedRoomId}</p>
-          <p>{channelReady ? 'Live sync ready' : 'Preparing sync'}</p>
-        </div>
-      </aside>
-
       <main className="chat-panel">
         <div className="chat-top-nav">
           <div className="top-nav-row">
@@ -671,11 +647,52 @@ function App() {
               <button className="ghost-btn" onClick={() => startCall()}>
                 🎙️ Voice
               </button>
+              <button className="ghost-btn settings-btn" onClick={toggleSettings} aria-label="Open settings">
+                ⚙️
+              </button>
             </div>
           </div>
           <div className="nav-divider" />
           <div className="nav-divider subtle" />
         </div>
+
+        {settingsOpen ? (
+          <div className="settings-drawer">
+            <div className="settings-shell">
+              <div className="settings-header">
+                <div>
+                  <p className="eyebrow">Settings</p>
+                  <h2>Your chat settings</h2>
+                </div>
+                <button className="secondary-btn" onClick={toggleSettings}>Close</button>
+              </div>
+
+              <div className="profile-card settings-profile">
+                <div className="avatar">💕</div>
+                <div>
+                  <h2>{profile.name}</h2>
+                  <p>{profile.partnerName ? `Chatting with ${profile.partnerName}` : 'Private and secure'}</p>
+                </div>
+              </div>
+
+              <div className="sidebar-section settings-panel">
+                <h3>Quick actions</h3>
+                <button className="sidebar-btn" onClick={() => { startCall(); setSettingsOpen(false) }}>
+                  🎙️ Start voice call
+                </button>
+                <button className="sidebar-btn secondary-logout" onClick={() => { handleSignOut(); setSettingsOpen(false) }}>
+                  ↪ Sign out
+                </button>
+              </div>
+
+              <div className="status-box settings-status">
+                <div className="status-pill">{firebaseReady ? 'Cloud synced' : 'Local mode'}</div>
+                <p>Room: {normalizedRoomId}</p>
+                <p>{channelReady ? 'Live sync ready' : 'Preparing sync'}</p>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {callMode ? (
           <div className="call-overlay">

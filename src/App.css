@@ -97,7 +97,7 @@ html, body, #root {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: 1fr;
   gap: 16px;
   min-height: 100vh;
   padding: 16px;
@@ -151,6 +151,56 @@ html, body, #root {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #25d366;
+}
+
+.settings-btn {
+  min-width: 44px;
+  padding: 0 12px;
+}
+
+.settings-drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.55);
+  display: grid;
+  place-items: center;
+  padding: 22px;
+}
+
+.settings-shell {
+  width: min(520px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: #0f172a;
+  border-radius: 28px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.35);
+}
+
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-profile {
+  background: #111b21;
+  padding: 18px;
+}
+
+.settings-panel {
+  background: #111b21;
+  padding: 18px;
+}
+
+.settings-status {
+  background: #111b21;
+  padding: 18px;
 }
 
 .profile-card {
