@@ -16,6 +16,7 @@ const defaultProfile = {
   name: '',
   partnerName: '',
   roomId: 'couple-room',
+  phoneNumber: '',
 }
 
 const getMessagesApiUrl = (roomId) => `/api/messages?room=${encodeURIComponent(roomId)}`
@@ -51,6 +52,30 @@ function getStoredProfile() {
   }
 }
 
+function sortMessages(messages = []) {
+  return [...messages].sort((left, right) => {
+    const leftTimestamp = Number(left?.timestamp || left?.createdAt?.toMillis?.() || 0)
+    const rightTimestamp = Number(right?.timestamp || right?.createdAt?.toMillis?.() || 0)
+    return leftTimestamp - rightTimestamp
+  })
+}
+
+function mergeMessages(existingMessages = [], incomingMessages = []) {
+  const nextMessages = []
+  const seen = new Set()
+
+  for (const message of [...existingMessages, ...incomingMessages]) {
+    const key = message?.id || `${message?.senderId || 'unknown'}-${message?.text || ''}-${message?.timestamp || message?.createdAt || ''}`
+    if (seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    nextMessages.push(message)
+  }
+
+  return sortMessages(nextMessages)
+}
+
 function App() {
   const [profile, setProfile] = useState(getStoredProfile)
   const [isSignedUp, setIsSignedUp] = useState(Boolean(getStoredProfile().name))
@@ -60,6 +85,7 @@ function App() {
     name: profile.name,
     partnerName: profile.partnerName,
     roomId: profile.roomId,
+    phoneNumber: profile.phoneNumber || '',
   })
   const [voiceMessageStatus, setVoiceMessageStatus] = useState('Ready')
   const [recordingError, setRecordingError] = useState('')
@@ -138,16 +164,17 @@ function App() {
   const toggleSettings = () => setSettingsOpen((current) => !current)
 
   const saveMessages = (nextMessages, roomId) => {
-    setMessages(nextMessages)
+    const mergedMessages = mergeMessages(messages, nextMessages)
+    setMessages(mergedMessages)
 
     if (typeof window === 'undefined') {
       return
     }
 
-    window.localStorage.setItem(`m3ssaging-messages:${roomId}`, JSON.stringify(nextMessages))
+    window.localStorage.setItem(`m3ssaging-messages:${roomId}`, JSON.stringify(mergedMessages))
 
     if (channelRef.current) {
-      channelRef.current.postMessage({ type: 'message-sync', roomId, messages: nextMessages })
+      channelRef.current.postMessage({ type: 'message-sync', roomId, messages: mergedMessages })
     }
   }
 
@@ -232,6 +259,7 @@ function App() {
       name: nextProfile.name,
       partnerName: nextProfile.partnerName,
       roomId: nextProfile.roomId,
+      phoneNumber: nextProfile.phoneNumber || '',
     })
 
     if (typeof window !== 'undefined') {
@@ -542,7 +570,7 @@ function App() {
           timestamp: doc.data().timestamp || doc.data().createdAt?.toMillis?.() || Date.now(),
         }))
 
-        setMessages(nextMessages)
+        setMessages((currentMessages) => mergeMessages(currentMessages, nextMessages))
       })
     }
 
@@ -568,10 +596,9 @@ function App() {
         }))
         const savedMessages = window.localStorage.getItem(`m3ssaging-messages:${normalizedRoomId}`)
         const existingMessages = savedMessages ? JSON.parse(savedMessages) : []
-        if (normalizedRemoteMessages.length >= (Array.isArray(existingMessages) ? existingMessages.length : 0)) {
-          setMessages(normalizedRemoteMessages)
-          window.localStorage.setItem(`m3ssaging-messages:${normalizedRoomId}`, JSON.stringify(normalizedRemoteMessages))
-        }
+        const mergedMessages = mergeMessages(existingMessages, normalizedRemoteMessages)
+        setMessages(mergedMessages)
+        window.localStorage.setItem(`m3ssaging-messages:${normalizedRoomId}`, JSON.stringify(mergedMessages))
       }
     }
 
@@ -595,7 +622,7 @@ function App() {
       }
 
       if (event.data.type === 'message-sync') {
-        setMessages(event.data.messages)
+        setMessages((currentMessages) => mergeMessages(currentMessages, event.data.messages))
         return
       }
 
@@ -887,6 +914,16 @@ function App() {
             </label>
 
             <label className="input-group">
+              <span>Phone number</span>
+              <input
+                type="tel"
+                value={formValues.phoneNumber}
+                onChange={(event) => setFormValues((prev) => ({ ...prev, phoneNumber: event.target.value }))}
+                placeholder="+1 555 123 4567"
+              />
+            </label>
+
+            <label className="input-group">
               <span>Room name</span>
               <input
                 type="text"
@@ -1107,13 +1144,12 @@ function App() {
                 return
               }
 
-              if (event.metaKey || event.ctrlKey) {
-                event.preventDefault()
-                sendMessage(event)
+              if (event.shiftKey) {
                 return
               }
 
-              // Allow Enter to insert a new paragraph.
+              event.preventDefault()
+              void sendMessage(event)
             }}
             onFocus={() => {
               syncMessageInputHeight()
