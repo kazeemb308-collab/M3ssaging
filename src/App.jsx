@@ -500,7 +500,7 @@ function App() {
       playNotificationSound()
 
       if (Notification.permission === 'granted') {
-        await showNotification(lastMessage.senderName || 'New message', {
+        void showNotification(lastMessage.senderName || 'New message', {
           body: notificationBody,
         })
       }
