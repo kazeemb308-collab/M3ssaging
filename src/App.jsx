@@ -97,6 +97,7 @@ function App() {
   const [recordedAudioBlob, setRecordedAudioBlob] = useState(null)
   const [recordingDuration, setRecordingDuration] = useState(0)
   const [lightboxImage, setLightboxImage] = useState(null)
+  const [pendingAttachment, setPendingAttachment] = useState(null)
   const [peerTyping, setPeerTyping] = useState(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState(null)
@@ -111,7 +112,8 @@ function App() {
   const prevMessageRef = useRef(null)
   const initialMessagesLoadedRef = useRef(false)
   const audioChunksRef = useRef([])
-  const fileInputRef = useRef(null)
+  const galleryInputRef = useRef(null)
+  const cameraInputRef = useRef(null)
   const messageInputRef = useRef(null)
 
   const syncMessageInputHeight = () => {
@@ -426,7 +428,7 @@ function App() {
     }
   }
 
-  const uploadFile = async (file) => {
+  const prepareAttachmentForSend = async (file) => {
     if (!file) {
       return
     }
@@ -434,62 +436,83 @@ function App() {
     setUploadError('')
 
     const reader = new FileReader()
-    reader.onload = async () => {
+    reader.onload = () => {
       const attachment = {
         name: file.name,
         type: file.type,
         data: reader.result,
       }
 
-      const nextMessage = {
-        id: `local-${Date.now()}`,
-        senderId: profile.name,
-        senderName: profile.name,
-        text: file.type.startsWith('image/') ? '📷 Image' : file.type.startsWith('video/') ? '🎬 Video' : '📎 File',
-        messageType: file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file',
+      const messageType = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file'
+      const defaultText = file.type.startsWith('image/') ? '📷 Image' : file.type.startsWith('video/') ? '🎬 Video' : '📎 File'
+
+      setPendingAttachment({
         attachment,
-        timestamp: Date.now(),
-        read: false,
-      }
+        messageType,
+        text: defaultText,
+      })
+    }
 
-      const nextMessages = [...messages, nextMessage]
-      saveMessages(nextMessages, normalizedRoomId)
-      setShowScrollToBottom(false)
-      scrollToBottom()
-
-      if (db && firebaseReady) {
-        await addDoc(collection(db, 'rooms', normalizedRoomId, 'messages'), {
-          ...nextMessage,
-          createdAt: serverTimestamp(),
-        })
-        return
-      }
-
-      try {
-        const response = await fetch('/api/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            roomId: normalizedRoomId,
-            message: nextMessage.text,
-            senderId: profile.name,
-            senderName: profile.name,
-            messageType: nextMessage.messageType,
-            attachment,
-          }),
-        })
-
-        if (response.ok) {
-          const remoteMessages = await response.json()
-          saveMessages(remoteMessages, normalizedRoomId)
-        }
-      } catch (error) {
-        console.error(error)
-        setUploadError('Unable to upload file. Please try again.')
-      }
+    reader.onerror = () => {
+      setUploadError('Unable to prepare the selected file. Please try again.')
     }
 
     reader.readAsDataURL(file)
+  }
+
+  const sendPreparedAttachment = async () => {
+    if (!pendingAttachment) {
+      return
+    }
+
+    const nextMessage = {
+      id: `local-${Date.now()}`,
+      senderId: profile.name,
+      senderName: profile.name,
+      text: pendingAttachment.text || '📎 File',
+      messageType: pendingAttachment.messageType,
+      attachment: pendingAttachment.attachment,
+      timestamp: Date.now(),
+      read: false,
+    }
+
+    const nextMessages = [...messages, nextMessage]
+    saveMessages(nextMessages, normalizedRoomId)
+    setPendingAttachment(null)
+    setShowScrollToBottom(false)
+    scrollToBottom()
+
+    if (db && firebaseReady) {
+      await addDoc(collection(db, 'rooms', normalizedRoomId, 'messages'), {
+        ...nextMessage,
+        createdAt: serverTimestamp(),
+      })
+      return
+    }
+
+    try {
+      const response = await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomId: normalizedRoomId,
+          message: nextMessage.text,
+          senderId: profile.name,
+          senderName: profile.name,
+          messageType: nextMessage.messageType,
+          attachment: nextMessage.attachment,
+          timestamp: nextMessage.timestamp,
+        }),
+      })
+
+      if (response.ok) {
+        const remoteMessages = await response.json()
+        saveMessages(remoteMessages, normalizedRoomId)
+      }
+    } catch (error) {
+      console.error(error)
+      setUploadError('Unable to send file. Please try again.')
+    }
   }
 
   const sendVoiceMessage = async () => {
@@ -999,7 +1022,7 @@ function App() {
                 <button className="sidebar-btn" onClick={() => { startRecording(); setSettingsOpen(false) }}>
                   🎙️ Record voice message
                 </button>
-                        <button className="sidebar-btn" onClick={() => fileInputRef.current?.click()}>
+                        <button className="sidebar-btn" onClick={() => galleryInputRef.current?.click()}>
                   📎 Upload file/photo
                 </button>
                 {typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'granted' ? (
@@ -1125,6 +1148,32 @@ function App() {
           </div>
         ) : null}
 
+        {pendingAttachment ? (
+          <div className="composer-preview">
+            <div className="attachment-card">
+              <span>{pendingAttachment.messageType === 'image' ? 'Photo' : pendingAttachment.messageType === 'video' ? 'Video' : 'File'}</span>
+              <strong>{pendingAttachment.attachment.name}</strong>
+              <button className="clear-btn" type="button" onClick={() => setPendingAttachment(null)}>Cancel</button>
+            </div>
+            {pendingAttachment.messageType === 'image' ? (
+              <img className="preview-image" src={pendingAttachment.attachment.data} alt={pendingAttachment.attachment.name} />
+            ) : null}
+            <label className="input-group compact">
+              <span>Edit caption</span>
+              <input
+                type="text"
+                value={pendingAttachment.text}
+                onChange={(event) => setPendingAttachment((current) => ({ ...current, text: event.target.value }))}
+                placeholder="Add a caption before sending"
+              />
+            </label>
+            <div className="preview-actions">
+              <button className="secondary-btn" type="button" onClick={sendPreparedAttachment}>Send now</button>
+              <button className="ghost-btn" type="button" onClick={() => cameraInputRef.current?.click()}>Retake</button>
+            </div>
+          </div>
+        ) : null}
+
         <form className="composer" onSubmit={sendMessage}>
           {showScrollToBottom ? (
             <button className="composer-action" type="button" onClick={scrollToBottom}>
@@ -1133,19 +1182,36 @@ function App() {
           ) : null}
           <input
             type="file"
-            ref={fileInputRef}
+            ref={galleryInputRef}
             accept="image/*,video/*,audio/*"
             style={{ display: 'none' }}
             onChange={(event) => {
               const file = event.target.files?.[0]
               if (file) {
-                uploadFile(file)
+                void prepareAttachmentForSend(file)
                 event.target.value = ''
               }
             }}
           />
-          <button className="composer-action" type="button" onClick={() => fileInputRef.current?.click()}>
+          <input
+            type="file"
+            ref={cameraInputRef}
+            accept="image/*"
+            capture="environment"
+            style={{ display: 'none' }}
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              if (file) {
+                void prepareAttachmentForSend(file)
+                event.target.value = ''
+              }
+            }}
+          />
+          <button className="composer-action" type="button" onClick={() => galleryInputRef.current?.click()}>
             📎
+          </button>
+          <button className="composer-action" type="button" onClick={() => cameraInputRef.current?.click()}>
+            📷
           </button>
           <button
             className="composer-action"
