@@ -80,6 +80,7 @@ function App() {
   const mediaRecorderRef = useRef(null)
   const recordingIntervalRef = useRef(null)
   const prevMessageRef = useRef(null)
+  const initialMessagesLoadedRef = useRef(false)
   const audioChunksRef = useRef([])
   const fileInputRef = useRef(null)
   const messageInputRef = useRef(null)
@@ -139,6 +140,58 @@ function App() {
     if (channelRef.current) {
       channelRef.current.postMessage({ type: 'message-sync', roomId, messages: nextMessages })
     }
+  }
+
+  const sendReadReceipt = async (messageIds) => {
+    if (!messageIds.length || !profile.name || typeof window === 'undefined') {
+      return
+    }
+
+    if (channelRef.current) {
+      channelRef.current.postMessage({
+        type: 'read-receipt',
+        roomId: normalizedRoomId,
+        senderId: profile.name,
+        messageIds,
+      })
+    }
+
+    if (!db || !firebaseReady) {
+      try {
+        await fetch('/api/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roomId: normalizedRoomId,
+            readMessageIds: messageIds,
+            read: true,
+          }),
+        })
+      } catch {
+        // best-effort only
+      }
+    }
+  }
+
+  const markIncomingMessagesRead = async (incomingMessages = messages) => {
+    if (typeof window === 'undefined' || !profile.name || document.visibilityState !== 'visible') {
+      return
+    }
+
+    const unreadIncoming = incomingMessages.filter((message) => message.senderId !== profile.name && !message.read)
+    if (!unreadIncoming.length) {
+      return
+    }
+
+    const nextMessages = incomingMessages.map((message) => {
+      if (message.senderId !== profile.name) {
+        return { ...message, read: true }
+      }
+      return message
+    })
+
+    saveMessages(nextMessages, normalizedRoomId)
+    await sendReadReceipt(unreadIncoming.map((message) => message.id))
   }
 
   const sendTypingUpdate = (isTyping) => {
@@ -333,6 +386,7 @@ function App() {
         messageType: file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file',
         attachment,
         timestamp: Date.now(),
+        read: false,
       }
 
       const nextMessages = [...messages, nextMessage]
@@ -398,6 +452,7 @@ function App() {
       messageType: 'audio',
       attachment,
       timestamp: Date.now(),
+      read: false,
     }
 
     const nextMessages = [...messages, nextMessage]
@@ -487,6 +542,7 @@ function App() {
         const normalizedRemoteMessages = remoteMessages.map((message) => ({
           ...message,
           timestamp: message.timestamp || Date.now(),
+          read: Boolean(message.read),
         }))
         const savedMessages = window.localStorage.getItem(`m3ssaging-messages:${normalizedRoomId}`)
         const existingMessages = savedMessages ? JSON.parse(savedMessages) : []
@@ -518,6 +574,16 @@ function App() {
 
       if (event.data.type === 'message-sync') {
         setMessages(event.data.messages)
+        return
+      }
+
+      if (event.data.type === 'read-receipt' && event.data.senderId !== profile.name) {
+        setMessages((currentMessages) => currentMessages.map((message) => {
+          if (event.data.messageIds?.includes(message.id)) {
+            return { ...message, read: true }
+          }
+          return message
+        }))
         return
       }
 
@@ -572,14 +638,21 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !('Notification' in window)) {
+    if (typeof window === 'undefined') {
       return
     }
 
-    if (Notification.permission === 'default') {
-      Notification.requestPermission().catch(() => {})
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void markIncomingMessagesRead()
+      }
     }
-  }, [])
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [normalizedRoomId, profile.name])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !('Notification' in window)) {
@@ -591,12 +664,19 @@ function App() {
       return
     }
 
+    if (!initialMessagesLoadedRef.current) {
+      prevMessageRef.current = messages[messages.length - 1]
+      initialMessagesLoadedRef.current = true
+      void markIncomingMessagesRead(messages)
+      return
+    }
+
     const lastMessage = messages[messages.length - 1]
     if (!lastMessage || prevMessageRef.current?.id === lastMessage.id) {
       return
     }
 
-    if (lastMessage.senderId !== profile.name) {
+    if (lastMessage.senderId !== profile.name && document.visibilityState !== 'visible') {
       const messageText = lastMessage.text || 'New message'
       const notificationBody = lastMessage.messageType === 'audio'
         ? 'Voice message received'
@@ -685,6 +765,7 @@ function App() {
       senderName: profile.name,
       text: trimmedMessage,
       timestamp: Date.now(),
+      read: false,
     }
 
     const nextMessages = [...messages, nextMessage]
@@ -901,8 +982,19 @@ function App() {
                       <a className="attachment-link" href={message.attachment.data} download={message.attachment.name}>{message.attachment.name}</a>
                     )
                   ) : null}
-                  <div className="message-timestamp">
-                    {message.timestamp ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                  <div className="status-row">
+                    <div className="message-timestamp">
+                      {message.timestamp ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                    </div>
+                    {isMine ? (
+                      <div
+                        className="message-status"
+                        aria-label={message.read ? 'Seen by partner' : 'Sent'}
+                        title={message.read ? 'Seen by partner' : 'Sent'}
+                      >
+                        {message.read ? '✓✓' : '✓'}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </article>
