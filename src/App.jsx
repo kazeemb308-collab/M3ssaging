@@ -70,6 +70,7 @@ function App() {
   const [recordedAudioUrl, setRecordedAudioUrl] = useState(null)
   const [recordedAudioBlob, setRecordedAudioBlob] = useState(null)
   const [recordingDuration, setRecordingDuration] = useState(0)
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
 
   const channelRef = useRef(null)
   const messageListRef = useRef(null)
@@ -78,6 +79,20 @@ function App() {
   const prevMessageRef = useRef(null)
   const audioChunksRef = useRef([])
   const fileInputRef = useRef(null)
+
+  const scrollToBottom = () => {
+    if (!messageListRef.current) {
+      return
+    }
+
+    window.requestAnimationFrame(() => {
+      messageListRef.current.scrollTo({
+        top: messageListRef.current.scrollHeight,
+        behavior: 'smooth',
+      })
+      setShowScrollToBottom(false)
+    })
+  }
 
   const normalizedRoomId = (profile.roomId || 'couple-room').trim().toLowerCase().replace(/\s+/g, '-') || 'couple-room'
 
@@ -110,6 +125,67 @@ function App() {
     }
   }
 
+  const showNotification = async (title, options = {}) => {
+    if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') {
+      return
+    }
+
+    if ('serviceWorker' in navigator) {
+      const registration = await navigator.serviceWorker.getRegistration()
+      if (registration) {
+        registration.showNotification(title, { silent: true, ...options })
+        return
+      }
+    }
+
+    try {
+      new Notification(title, { silent: true, ...options })
+    } catch {
+      // ignore notification errors
+    }
+  }
+
+  const requestNotificationPermission = async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      return
+    }
+
+    if (Notification.permission === 'default') {
+      const permission = await Notification.requestPermission()
+      if (permission === 'granted') {
+        showNotification('Notifications enabled', {
+          body: 'You will receive alerts when new messages arrive.',
+        })
+      }
+    }
+  }
+
+  const playNotificationSound = () => {
+    if (typeof window === 'undefined' || !(window.AudioContext || window.webkitAudioContext)) {
+      return
+    }
+
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext
+      const audioCtx = new AudioCtx()
+      if (audioCtx.state === 'suspended') {
+        void audioCtx.resume()
+      }
+
+      const oscillator = audioCtx.createOscillator()
+      const gain = audioCtx.createGain()
+      oscillator.type = 'sine'
+      oscillator.frequency.value = 780
+      gain.gain.value = 0.05
+      oscillator.connect(gain)
+      gain.connect(audioCtx.destination)
+      oscillator.start()
+      oscillator.stop(audioCtx.currentTime + 0.08)
+    } catch {
+      // ignore audio play errors
+    }
+  }
+
   const stopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop()
@@ -119,6 +195,7 @@ function App() {
   }
 
   const startRecording = async () => {
+    requestNotificationPermission()
     setRecordingError('')
     if (isRecording) {
       stopRecording()
@@ -192,8 +269,8 @@ function App() {
         id: `local-${Date.now()}`,
         senderId: profile.name,
         senderName: profile.name,
-        text: file.type.startsWith('image/') ? '📷 Image' : '📎 File',
-        messageType: file.type.startsWith('image/') ? 'image' : 'file',
+        text: file.type.startsWith('image/') ? '📷 Image' : file.type.startsWith('video/') ? '🎬 Video' : '📎 File',
+        messageType: file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file',
         attachment,
       }
 
@@ -314,6 +391,8 @@ function App() {
           senderId: doc.data().senderId || 'unknown',
           senderName: doc.data().senderName || 'Someone',
           text: doc.data().text || '',
+          messageType: doc.data().messageType || 'text',
+          attachment: doc.data().attachment || null,
         }))
 
         setMessages(nextMessages)
@@ -377,11 +456,13 @@ function App() {
       return
     }
 
-    messageListRef.current.scrollTo({
-      top: messageListRef.current.scrollHeight,
-      behavior: 'smooth',
-    })
-  }, [messages])
+    if (!showScrollToBottom) {
+      messageListRef.current.scrollTo({
+        top: messageListRef.current.scrollHeight,
+        behavior: 'smooth',
+      })
+    }
+  }, [messages, showScrollToBottom])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !('Notification' in window)) {
@@ -408,7 +489,7 @@ function App() {
       return
     }
 
-    if (lastMessage.senderId !== profile.name && Notification.permission === 'granted') {
+    if (lastMessage.senderId !== profile.name) {
       const messageText = lastMessage.text || 'New message'
       const notificationBody = lastMessage.messageType === 'audio'
         ? 'Voice message received'
@@ -416,10 +497,13 @@ function App() {
           ? 'Photo received'
           : messageText
 
-      new Notification(lastMessage.senderName || 'New message', {
-        body: notificationBody,
-        silent: true,
-      })
+      playNotificationSound()
+
+      if (Notification.permission === 'granted') {
+        await showNotification(lastMessage.senderName || 'New message', {
+          body: notificationBody,
+        })
+      }
     }
 
     prevMessageRef.current = lastMessage
@@ -617,9 +701,14 @@ function App() {
                 <button className="sidebar-btn" onClick={() => { startRecording(); setSettingsOpen(false) }}>
                   🎙️ Record voice message
                 </button>
-                <button className="sidebar-btn" onClick={() => fileInputRef.current?.click()}>
+                        <button className="sidebar-btn" onClick={() => fileInputRef.current?.click()}>
                   📎 Upload file/photo
                 </button>
+                {typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'granted' ? (
+                  <button className="sidebar-btn" onClick={() => requestNotificationPermission()}>
+                    🔔 Enable notifications
+                  </button>
+                ) : null}
                 <button className="sidebar-btn secondary-logout" onClick={() => { handleSignOut(); setSettingsOpen(false) }}>
                   ↪ Sign out
                 </button>
@@ -647,7 +736,20 @@ function App() {
           </div>
         ) : null}
 
-        <section className="message-list" aria-label="conversation messages" ref={messageListRef}>
+        <section
+          className="message-list"
+          aria-label="conversation messages"
+          ref={messageListRef}
+          onScroll={() => {
+            if (!messageListRef.current) {
+              return
+            }
+
+            const scrollContainer = messageListRef.current
+            const distanceFromBottom = scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight
+            setShowScrollToBottom(distanceFromBottom > 120)
+          }}
+        >
           {messages.map((message) => {
             const isMine = message.senderId === profile.name
             const isSystem = message.senderId === 'system'
@@ -658,9 +760,13 @@ function App() {
                   {message.text}
                   {message.attachment ? (
                     message.messageType === 'image' ? (
-                      <img className="message-image" src={message.attachment.data} alt={message.attachment.name} />
+                      <a href={message.attachment.data} target="_blank" rel="noreferrer noopener">
+                        <img className="message-image" src={message.attachment.data} alt={message.attachment.name} />
+                      </a>
                     ) : message.messageType === 'audio' ? (
                       <audio controls src={message.attachment.data} />
+                    ) : message.messageType === 'video' ? (
+                      <video className="message-video" controls src={message.attachment.data} />
                     ) : (
                       <a className="attachment-link" href={message.attachment.data} download={message.attachment.name}>{message.attachment.name}</a>
                     )
@@ -672,9 +778,15 @@ function App() {
         </section>
 
         <form className="composer" onSubmit={sendMessage}>
+          {showScrollToBottom ? (
+            <button className="composer-action" type="button" onClick={scrollToBottom}>
+              ⬇️
+            </button>
+          ) : null}
           <input
             type="file"
             ref={fileInputRef}
+            accept="image/*,video/*,audio/*"
             style={{ display: 'none' }}
             onChange={(event) => {
               const file = event.target.files?.[0]
@@ -694,6 +806,11 @@ function App() {
             type="text"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault()
+              }
+            }}
             placeholder="Type a message..."
             aria-label="message input"
           />

@@ -101,8 +101,8 @@ html, body, #root {
   gap: 0;
   min-height: 100vh;
   padding: 0;
-  height: 100vh;
-  width: 100vw;
+  height: 100%;
+  width: 100%;
 }
 
 .chat-panel {
@@ -117,7 +117,7 @@ html, body, #root {
 .message-list {
   flex: 1 1 auto;
   min-height: 0;
-  padding: 16px 18px 180px;
+  padding: 16px 18px calc(180px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -278,14 +278,7 @@ html, body, #root {
   flex-direction: column;
   overflow: hidden;
   min-height: 0;
-  height: 100vh;
-  color: #111827;
-  box-shadow: none;
-}
-
-.chat-panel > .chat-top-nav,
-.chat-panel > .composer {
-  flex-shrink: 0;
+  height: 100%;
 }
 
 .chat-top-nav {
@@ -370,7 +363,7 @@ html, body, #root {
 .message-list {
   flex: 1 1 auto;
   min-height: 0;
-  padding: 16px 18px 20px;
+  padding: 16px 18px calc(140px + env(safe-area-inset-bottom));
   overflow-y: auto;
   background: linear-gradient(180deg, #e5ddd5 0%, #f5f1eb 100%);
 }
@@ -379,13 +372,13 @@ html, body, #root {
   position: relative;
 }
 
-.composer {
-  position: sticky;
-  bottom: 0;
-  z-index: 1;
-}
-
-.message-bubble {
+.message-image {
+  width: 100%;
+  max-width: 320px;
+  height: auto;
+  border-radius: 16px;
+  object-fit: cover;
+  cursor: zoom-in;
   max-width: 82%;
   padding: 12px 14px;
   border-radius: 18px;
@@ -436,17 +429,16 @@ html, body, #root {
 }
 
 .composer {
-  position: fixed;
-  left: 0;
-  right: 0;
+  position: sticky;
   bottom: 0;
   z-index: 20;
   display: flex;
   gap: 10px;
   padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
-  background: #f0f2f5;
+  background: rgba(240, 242, 245, 0.98);
   border-top: 1px solid #e5e7eb;
   align-items: center;
+  min-height: 64px;
 }
 
 .composer-action {
@@ -463,6 +455,7 @@ html, body, #root {
 
 .composer input {
   flex: 1;
+  min-width: 0;
   border: 1px solid #d1d5db;
   border-radius: 999px;
   padding: 12px 14px;
@@ -478,6 +471,7 @@ html, body, #root {
 .composer button {
   padding: 0 18px;
   min-height: 44px;
+  flex-shrink: 0;
   background: linear-gradient(135deg, #25d366, #128c7e);
   color: white;
   font-weight: 600;
@@ -543,6 +537,13 @@ html, body, #root {
 .message-attachment img {
   width: min(240px, 100%);
   border-radius: 16px;
+  object-fit: cover;
+}
+
+.message-video {
+  width: min(280px, 100%);
+  border-radius: 16px;
+  max-height: 320px;
   object-fit: cover;
 }
 
