@@ -7,7 +7,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
+      includeAssets: ['favicon.svg'],
       manifest: {
         name: 'M3ssaging',
         short_name: 'M3ssaging',
@@ -16,16 +16,17 @@ export default defineConfig({
         background_color: '#0f1223',
         display: 'standalone',
         start_url: '/',
+        scope: '/',
         icons: [
           {
-            src: 'pwa-192x192.png',
+            src: 'favicon.svg',
             sizes: '192x192',
-            type: 'image/png',
+            type: 'image/svg+xml',
           },
           {
-            src: 'pwa-512x512.png',
+            src: 'favicon.svg',
             sizes: '512x512',
-            type: 'image/png',
+            type: 'image/svg+xml',
           },
         ],
       },

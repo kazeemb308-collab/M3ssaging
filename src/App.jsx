@@ -73,6 +73,9 @@ function App() {
   const [lightboxImage, setLightboxImage] = useState(null)
   const [peerTyping, setPeerTyping] = useState(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
+  const [deferredInstallPrompt, setDeferredInstallPrompt] = useState(null)
+  const [canInstall, setCanInstall] = useState(false)
+  const [isInstalled, setIsInstalled] = useState(false)
 
   const channelRef = useRef(null)
   const typingTimeoutRef = useRef(null)
@@ -115,13 +118,19 @@ function App() {
       return
     }
 
+    const scroll = () => {
+      if (!messageListRef.current) {
+        return
+      }
+      messageListRef.current.scrollTop = messageListRef.current.scrollHeight
+    }
+
     window.requestAnimationFrame(() => {
-      messageListRef.current.scrollTo({
-        top: messageListRef.current.scrollHeight,
-        behavior: 'smooth',
-      })
-      setShowScrollToBottom(false)
+      scroll()
+      window.setTimeout(scroll, 60)
     })
+
+    setShowScrollToBottom(false)
   }
 
   const normalizedRoomId = (profile.roomId || 'couple-room').trim().toLowerCase().replace(/\s+/g, '-') || 'couple-room'
@@ -304,6 +313,19 @@ function App() {
       mediaRecorderRef.current.stop()
       setIsRecording(false)
       setVoiceMessageStatus('Processing')
+    }
+  }
+
+  const promptInstall = async () => {
+    if (!deferredInstallPrompt) {
+      return
+    }
+
+    deferredInstallPrompt.prompt()
+    const choiceResult = await deferredInstallPrompt.userChoice
+    if (choiceResult.outcome === 'accepted') {
+      setCanInstall(false)
+      setDeferredInstallPrompt(null)
     }
   }
 
@@ -642,14 +664,31 @@ function App() {
       return
     }
 
+    const handleBeforeInstallPrompt = (event) => {
+      event.preventDefault()
+      setDeferredInstallPrompt(event)
+      setCanInstall(true)
+    }
+
+    const handleAppInstalled = () => {
+      setIsInstalled(true)
+      setCanInstall(false)
+      setDeferredInstallPrompt(null)
+    }
+
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         void markIncomingMessagesRead()
       }
     }
 
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
+    window.addEventListener('appinstalled', handleAppInstalled)
     document.addEventListener('visibilitychange', handleVisibilityChange)
+
     return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
+      window.removeEventListener('appinstalled', handleAppInstalled)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [normalizedRoomId, profile.name])
@@ -917,6 +956,14 @@ function App() {
                     🔔 Enable notifications
                   </button>
                 ) : null}
+                {canInstall && !isInstalled ? (
+                  <button className="sidebar-btn" onClick={promptInstall}>
+                    ⬇️ Install app
+                  </button>
+                ) : null}
+                {isInstalled ? (
+                  <div className="status-box settings-status">App installed</div>
+                ) : null}
                 <button className="sidebar-btn secondary-logout" onClick={() => { handleSignOut(); setSettingsOpen(false) }}>
                   ↪ Sign out
                 </button>
@@ -986,13 +1033,13 @@ function App() {
                     <div className="message-timestamp">
                       {message.timestamp ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                     </div>
-                    {isMine ? (
+                    {isMine && message.read ? (
                       <div
                         className="message-status"
-                        aria-label={message.read ? 'Seen by partner' : 'Sent'}
-                        title={message.read ? 'Seen by partner' : 'Sent'}
+                        aria-label="Seen by partner"
+                        title="Seen by partner"
                       >
-                        {message.read ? '✓✓' : '✓'}
+                        ✓✓
                       </div>
                     ) : null}
                   </div>
