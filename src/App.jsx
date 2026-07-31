@@ -61,15 +61,23 @@ function App() {
     partnerName: profile.partnerName,
     roomId: profile.roomId,
   })
-  const [recording, setRecording] = useState(false)
-  const [recordedAudioUrl, setRecordedAudioUrl] = useState(null)
-  const [recordedAudioBlob, setRecordedAudioBlob] = useState(null)
-  const [attachment, setAttachment] = useState(null)
-  const [messageError, setMessageError] = useState('')
+  const [callMode, setCallMode] = useState(null)
+  const [callStatus, setCallStatus] = useState('Ready to connect')
+  const [localStream, setLocalStream] = useState(null)
+  const [remoteStream, setRemoteStream] = useState(null)
+  const [callError, setCallError] = useState('')
   const [channelReady, setChannelReady] = useState(false)
+  const [pendingIncomingCall, setPendingIncomingCall] = useState(null)
+  const [isMuted, setIsMuted] = useState(false)
 
-  const mediaRecorderRef = useRef(null)
+  const peerConnectionRef = useRef(null)
+  const localStreamRef = useRef(null)
   const channelRef = useRef(null)
+  const callRoleRef = useRef('idle')
+  const callSessionIdRef = useRef(null)
+  const seenSignalIdsRef = useRef(new Set())
+  const pollingRef = useRef(null)
+  const messageListRef = useRef(null)
 
   const normalizedRoomId = (profile.roomId || 'couple-room').trim().toLowerCase().replace(/\s+/g, '-') || 'couple-room'
 
@@ -100,254 +108,296 @@ function App() {
     }
   }
 
-  const stopRecording = () => {
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop()
-      mediaRecorderRef.current = null
-    }
-    setRecording(false)
+  const stopTracks = () => {
+    localStreamRef.current?.getTracks().forEach((track) => track.stop())
+    localStreamRef.current = null
+    setLocalStream(null)
   }
 
-  const clearRecordedAudio = () => {
-    if (recordedAudioUrl) {
-      URL.revokeObjectURL(recordedAudioUrl)
-    }
-    setRecordedAudioUrl(null)
-    setRecordedAudioBlob(null)
+  const closePeerConnection = () => {
+    peerConnectionRef.current?.close()
+    peerConnectionRef.current = null
   }
 
-  const startRecording = async () => {
-    setMessageError('')
-    clearAttachment()
+  const serializeCandidate = (candidate) => {
+    if (!candidate) {
+      return null
+    }
+
+    return {
+      candidate: candidate.candidate,
+      sdpMid: candidate.sdpMid,
+      sdpMLineIndex: candidate.sdpMLineIndex,
+    }
+  }
+
+  const stopCallPolling = () => {
+    if (pollingRef.current) {
+      window.clearInterval(pollingRef.current)
+      pollingRef.current = null
+    }
+  }
+
+  const sendCallSignal = async (signal) => {
+    if (!normalizedRoomId || !signal) {
+      return
+    }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-      const recorder = new MediaRecorder(stream)
-      const chunks = []
-
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          chunks.push(event.data)
-        }
-      }
-
-      recorder.onstop = () => {
-        const blob = new Blob(chunks, { type: 'audio/webm' })
-        const url = URL.createObjectURL(blob)
-        setRecordedAudioUrl(url)
-        setRecordedAudioBlob(blob)
-        stream.getTracks().forEach((track) => track.stop())
-      }
-
-      recorder.start()
-      mediaRecorderRef.current = recorder
-      setRecording(true)
+      await fetch('/api/calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomId: normalizedRoomId,
+          signal: {
+            ...signal,
+            callId: callSessionIdRef.current,
+            sender: profile.name,
+          },
+        }),
+      })
     } catch (error) {
       console.error(error)
-      setMessageError('Unable to access microphone. Please allow access.')
     }
   }
 
-  const handleAttachment = (event) => {
-    const file = event.target.files?.[0]
-    if (!file) {
-      setAttachment(null)
-      return
-    }
-
-    setMessageError('')
-    clearRecordedAudio()
-
-    if (file.size > 15 * 1024 * 1024) {
-      setMessageError('File size must be less than 15MB.')
-      return
-    }
-
-    const reader = new FileReader()
-    reader.onload = () => {
-      setAttachment({
-        name: file.name,
-        type: file.type,
-        size: file.size,
-        data: reader.result,
-      })
-    }
-    reader.readAsDataURL(file)
-  }
-
-  const clearAttachment = () => {
-    setAttachment(null)
-    const input = document.querySelector('#attachment-input')
-    if (input) input.value = ''
-  }
-
-  const sendAttachmentMessage = async () => {
-    if (!attachment) {
-      return
-    }
-
-    const nextMessage = {
-      id: `local-${Date.now()}`,
-      senderId: profile.name,
-      senderName: profile.name,
-      text: attachment.name,
-      attachment: { ...attachment },
-      messageType: 'attachment',
-    }
-
-    const nextMessages = [...messages, nextMessage]
-    saveMessages(nextMessages, normalizedRoomId)
-    clearAttachment()
-
-    if (db && firebaseReady) {
-      await addDoc(collection(db, 'rooms', normalizedRoomId, 'messages'), {
-        text: attachment.name,
-        senderId: profile.name,
-        senderName: profile.name,
-        createdAt: serverTimestamp(),
-        messageType: 'attachment',
-        attachment,
-      })
-      return
-    }
-
+  const processCallSignals = async () => {
     try {
-      await fetch('/api/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          roomId: normalizedRoomId,
-          message: attachment.name,
-          senderId: profile.name,
-          senderName: profile.name,
-          messageType: 'attachment',
-          attachment,
-        }),
-      })
-    } catch {
-      // Remote sync will retry on the next poll if the API is temporarily unavailable.
+      const response = await fetch(`/api/calls?room=${encodeURIComponent(normalizedRoomId)}`)
+      if (!response.ok) {
+        return
+      }
+
+      const signals = await response.json()
+      for (const signal of Array.isArray(signals) ? signals : []) {
+        const signalKey = `${signal?.id || 'unknown'}:${signal?.type || 'signal'}`
+        if (!signal || seenSignalIdsRef.current.has(signalKey)) {
+          continue
+        }
+
+        seenSignalIdsRef.current.add(signalKey)
+
+        if (signal.sender === profile.name) {
+          continue
+        }
+
+        if (signal.type === 'offer' && callRoleRef.current !== 'caller' && !pendingIncomingCall) {
+          callSessionIdRef.current = signal.callId
+          setPendingIncomingCall({ callerName: signal.sender || 'Someone', offer: signal.offer, callId: signal.callId })
+          setCallMode('voice')
+          setCallStatus('Incoming call…')
+          callRoleRef.current = 'callee'
+          continue
+        }
+
+        if (!signal.callId || signal.callId !== callSessionIdRef.current) {
+          continue
+        }
+
+        if (signal.type === 'end') {
+          await endCall()
+          return
+        }
+
+        if (signal.sender === profile.name) {
+          continue
+        }
+
+        if (signal.type === 'offer' && callRoleRef.current !== 'caller' && !pendingIncomingCall) {
+          callSessionIdRef.current = signal.callId
+          setPendingIncomingCall({ callerName: signal.sender || 'Someone', offer: signal.offer, callId: signal.callId })
+          setCallMode('voice')
+          setCallStatus('Incoming call…')
+          callRoleRef.current = 'callee'
+          continue
+        }
+
+        if (signal.type === 'answer' && callRoleRef.current === 'caller' && peerConnectionRef.current) {
+          const answer = new window.RTCSessionDescription(signal.answer)
+          await peerConnectionRef.current.setRemoteDescription(answer)
+          setCallStatus('Connected')
+          continue
+        }
+
+        if (signal.type === 'candidate' && peerConnectionRef.current) {
+          const candidate = new window.RTCIceCandidate(signal.candidate)
+          await peerConnectionRef.current.addIceCandidate(candidate)
+        }
+      }
+    } catch (error) {
+      console.error(error)
     }
   }
 
-  const sendVoiceMessage = async () => {
-    if (!recordedAudioBlob) {
+  const startCallPolling = () => {
+    stopCallPolling()
+    void processCallSignals()
+    pollingRef.current = window.setInterval(() => {
+      void processCallSignals()
+    }, 1000)
+  }
+
+  useEffect(() => {
+    if (!profile.name) {
       return
     }
 
-    const dataUrl = await new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(reader.result)
-      reader.onerror = reject
-      reader.readAsDataURL(recordedAudioBlob)
+    startCallPolling()
+    return () => stopCallPolling()
+  }, [profile.name, normalizedRoomId])
+
+  const createPeerConnection = async (stream) => {
+    if (peerConnectionRef.current) {
+      return peerConnectionRef.current
+    }
+
+    const configuration = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+      ],
+    }
+
+    const peerConnection = new window.RTCPeerConnection(configuration)
+    peerConnectionRef.current = peerConnection
+
+    stream.getTracks().forEach((track) => {
+      peerConnection.addTrack(track, stream)
     })
 
-    const voiceAttachment = {
-      name: `voice-message-${Date.now()}.webm`,
-      type: recordedAudioBlob.type || 'audio/webm',
-      size: recordedAudioBlob.size,
-      data: dataUrl,
+    peerConnection.onicecandidate = async (event) => {
+      if (!event.candidate) {
+        return
+      }
+
+      await sendCallSignal({ type: 'candidate', candidate: serializeCandidate(event.candidate) })
     }
 
-    const nextMessage = {
-      id: `local-${Date.now()}`,
-      senderId: profile.name,
-      senderName: profile.name,
-      text: 'Voice message',
-      attachment: voiceAttachment,
-      messageType: 'voice',
+    peerConnection.ontrack = (event) => {
+      const [remoteMediaStream] = event.streams
+      if (remoteMediaStream) {
+        setRemoteStream(remoteMediaStream)
+        setCallStatus('Connected')
+      }
     }
 
-    const nextMessages = [...messages, nextMessage]
-    saveMessages(nextMessages, normalizedRoomId)
-    clearRecordedAudio()
+    peerConnection.onconnectionstatechange = () => {
+      if (peerConnection.connectionState === 'connected') {
+        setCallStatus('Connected')
+      }
+      if (['failed', 'disconnected', 'closed'].includes(peerConnection.connectionState)) {
+        setCallStatus('Connection interrupted')
+      }
+    }
 
-    if (db && firebaseReady) {
-      await addDoc(collection(db, 'rooms', normalizedRoomId, 'messages'), {
-        text: 'Voice message',
-        senderId: profile.name,
-        senderName: profile.name,
-        createdAt: serverTimestamp(),
-        messageType: 'voice',
-        attachment: voiceAttachment,
-      })
+    return peerConnection
+  }
+
+  const endCall = async () => {
+    stopCallPolling()
+    stopTracks()
+    closePeerConnection()
+    callRoleRef.current = 'idle'
+    seenSignalIdsRef.current.clear()
+
+    if (callSessionIdRef.current) {
+      await sendCallSignal({ type: 'end' })
+    }
+
+    callSessionIdRef.current = null
+    setCallMode(null)
+    setPendingIncomingCall(null)
+    setRemoteStream(null)
+    setCallStatus('Call ended')
+    setCallError('')
+    setIsMuted(false)
+  }
+
+  const toggleMute = () => {
+    const nextMuted = !isMuted
+    localStreamRef.current?.getAudioTracks().forEach((track) => {
+      track.enabled = !nextMuted
+    })
+    setIsMuted(nextMuted)
+  }
+
+  const ensureLocalStream = async () => {
+    if (localStreamRef.current) {
+      return localStreamRef.current
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: false,
+    })
+
+    localStreamRef.current = stream
+    setLocalStream(stream)
+    return stream
+  }
+
+  const acceptIncomingCall = async () => {
+    if (!pendingIncomingCall) {
       return
     }
 
+    setPendingIncomingCall(null)
+    setCallStatus('Connecting…')
+    setCallError('')
+    callRoleRef.current = 'callee'
+    if (pendingIncomingCall.callId) {
+      callSessionIdRef.current = pendingIncomingCall.callId
+    }
+
     try {
-      await fetch('/api/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          roomId: normalizedRoomId,
-          message: 'Voice message',
-          senderId: profile.name,
-          senderName: profile.name,
-          messageType: 'voice',
-          attachment: voiceAttachment,
-        }),
-      })
-    } catch {
-      // Remote sync will retry on the next poll if the API is temporarily unavailable.
+      const stream = await ensureLocalStream()
+      const peerConnection = await createPeerConnection(stream)
+      await peerConnection.setRemoteDescription(new window.RTCSessionDescription(pendingIncomingCall.offer))
+
+      const answer = await peerConnection.createAnswer()
+      await peerConnection.setLocalDescription(answer)
+      await sendCallSignal({ type: 'answer', answer: { type: answer.type, sdp: answer.sdp } })
+      startCallPolling()
+    } catch (error) {
+      console.error(error)
+      setCallError('Unable to accept the call. Please try again.')
+      await endCall()
     }
   }
 
-  const sendMessage = async (event) => {
-    event.preventDefault()
+  const declineIncomingCall = async () => {
+    setPendingIncomingCall(null)
+    setCallStatus('Call declined')
+    setCallMode(null)
+    setCallError('')
+    await sendCallSignal({ type: 'end' })
+  }
 
-    if (recordedAudioBlob) {
-      await sendVoiceMessage()
-      setDraft('')
+  const startCall = async () => {
+    if (!profile.partnerName) {
+      setCallError('Add your partner name first.')
       return
     }
 
-    if (attachment) {
-      await sendAttachmentMessage()
-      setDraft('')
-      return
-    }
-
-    if (!draft.trim() || !profile.name) {
-      return
-    }
-
-    const trimmedMessage = draft.trim()
-    const nextMessage = {
-      id: `local-${Date.now()}`,
-      senderId: profile.name,
-      senderName: profile.name,
-      text: trimmedMessage,
-      messageType: 'text',
-    }
-
-    const nextMessages = [...messages, nextMessage]
-    saveMessages(nextMessages, normalizedRoomId)
-    setDraft('')
-
-    if (db && firebaseReady) {
-      await addDoc(collection(db, 'rooms', normalizedRoomId, 'messages'), {
-        text: trimmedMessage,
-        senderId: profile.name,
-        senderName: profile.name,
-        createdAt: serverTimestamp(),
-        messageType: 'text',
-      })
-      return
-    }
+    setCallError('')
+    setPendingIncomingCall(null)
+    setCallMode('voice')
+    setCallStatus('Calling…')
+    callRoleRef.current = 'caller'
+    callSessionIdRef.current = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    seenSignalIdsRef.current.clear()
 
     try {
-      await fetch('/api/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          roomId: normalizedRoomId,
-          message: trimmedMessage,
-          senderId: profile.name,
-          senderName: profile.name,
-          messageType: 'text',
-        }),
-      })
-    } catch {
-      // Remote sync will retry on the next poll if the API is temporarily unavailable.
+      const stream = await ensureLocalStream()
+      const peerConnection = await createPeerConnection(stream)
+      const offer = await peerConnection.createOffer()
+      await peerConnection.setLocalDescription(offer)
+      await sendCallSignal({ type: 'offer', offer: { type: offer.type, sdp: offer.sdp } })
+      startCallPolling()
+    } catch (error) {
+      console.error(error)
+      setCallError('Call setup failed. Please allow microphone access.')
+      await endCall()
     }
   }
 
@@ -367,8 +417,6 @@ function App() {
           senderId: doc.data().senderId || 'unknown',
           senderName: doc.data().senderName || 'Someone',
           text: doc.data().text || '',
-          attachment: doc.data().attachment || null,
-          messageType: doc.data().messageType || 'text',
         }))
 
         setMessages(nextMessages)
@@ -392,8 +440,12 @@ function App() {
 
       const remoteMessages = await syncMessagesFromApi(normalizedRoomId)
       if (remoteMessages.length > 0) {
-        setMessages(remoteMessages)
-        window.localStorage.setItem(`m3ssaging-messages:${normalizedRoomId}`, JSON.stringify(remoteMessages))
+        const savedMessages = window.localStorage.getItem(`m3ssaging-messages:${normalizedRoomId}`)
+        const existingMessages = savedMessages ? JSON.parse(savedMessages) : []
+        if (remoteMessages.length >= (Array.isArray(existingMessages) ? existingMessages.length : 0)) {
+          setMessages(remoteMessages)
+          window.localStorage.setItem(`m3ssaging-messages:${normalizedRoomId}`, JSON.stringify(remoteMessages))
+        }
       }
     }
 
@@ -424,7 +476,18 @@ function App() {
   }, [profile.name, normalizedRoomId])
 
   useEffect(() => {
+    if (!messageListRef.current) {
+      return
+    }
+
+    messageListRef.current.scrollTop = messageListRef.current.scrollHeight
+  }, [messages])
+
+  useEffect(() => {
     return () => {
+      stopCallPolling()
+      stopTracks()
+      closePeerConnection()
       channelRef.current?.close()
       channelRef.current = null
     }
@@ -449,7 +512,7 @@ function App() {
         id: 'welcome-joined',
         senderId: 'system',
         senderName: 'M3ssaging',
-        text: `Welcome ${name}! Use room ${roomId} on both devices to chat in real time.`,
+        text: `Welcome ${name}! Use room ${roomId} on both devices to chat and call in real time.`,
       },
     ])
     setDraft('')
@@ -461,12 +524,61 @@ function App() {
     setIsSignedUp(false)
     setMessages(demoMessages)
     setDraft('')
-    setRecordedAudioUrl(null)
-    setAttachment(null)
-    setMessageError('')
+    setCallMode(null)
+    endCall()
 
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem('m3ssaging-profile')
+    }
+  }
+
+  const sendMessage = async (event) => {
+    event.preventDefault()
+
+    if (!draft.trim() || !profile.name) {
+      return
+    }
+
+    const trimmedMessage = draft.trim()
+    const nextMessage = {
+      id: `local-${Date.now()}`,
+      senderId: profile.name,
+      senderName: profile.name,
+      text: trimmedMessage,
+    }
+
+    const nextMessages = [...messages, nextMessage]
+    saveMessages(nextMessages, normalizedRoomId)
+    setDraft('')
+
+    if (db && firebaseReady) {
+      await addDoc(collection(db, 'rooms', normalizedRoomId, 'messages'), {
+        text: trimmedMessage,
+        senderId: profile.name,
+        senderName: profile.name,
+        createdAt: serverTimestamp(),
+      })
+      return
+    }
+
+    try {
+      const response = await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomId: normalizedRoomId,
+          message: trimmedMessage,
+          senderId: profile.name,
+          senderName: profile.name,
+        }),
+      })
+
+      if (response.ok) {
+        const remoteMessages = await response.json()
+        saveMessages(remoteMessages, normalizedRoomId)
+      }
+    } catch {
+      // Remote sync will retry on the next poll if the API is temporarily unavailable.
     }
   }
 
@@ -476,7 +588,7 @@ function App() {
         <div className="auth-card">
           <div className="brand">M3ssaging</div>
           <h1>Create your chat space</h1>
-          <p className="auth-copy">Set your name, add your partner, and use the same room name on both phones to send voice messages, photos, and documents.</p>
+          <p className="auth-copy">Set your name, add your partner, and use the same room name on both phones to send real messages and make real calls.</p>
 
           <form className="auth-form" onSubmit={handleSignup}>
             <label className="input-group">
@@ -532,11 +644,8 @@ function App() {
 
         <div className="sidebar-section">
           <h3>Quick actions</h3>
-          <button className="sidebar-btn" onClick={() => { window.document.querySelector('#attachment-input')?.click() }}>
-            📎 Attach file
-          </button>
-          <button className="sidebar-btn" onClick={() => { recording ? stopRecording() : startRecording() }}>
-            {recording ? '⏹️ Stop recording' : '🎙️ Record voice'}
+          <button className="sidebar-btn" onClick={() => startCall()}>
+            🎙️ Start voice call
           </button>
           <button className="sidebar-btn secondary-logout" onClick={handleSignOut}>
             ↪ Sign out
@@ -553,79 +662,85 @@ function App() {
       <main className="chat-panel">
         <div className="chat-top-nav">
           <div className="top-nav-row">
+            <div className="top-nav-tabs">
+              <button className="nav-tab active">Chats</button>
+              <button className="nav-tab">Calls</button>
+            </div>
             <div className="top-nav-identity">
               <span>{profile.partnerName || 'Private room'}</span>
+              <button className="ghost-btn" onClick={() => startCall()}>
+                🎙️ Voice
+              </button>
             </div>
           </div>
           <div className="nav-divider" />
+          <div className="nav-divider subtle" />
         </div>
 
-        <section className="message-list" aria-label="conversation messages">
+        {callMode ? (
+          <div className="call-overlay">
+            <div className="call-overlay-shell">
+              <div className="call-header">
+                <div>
+                  <p className="eyebrow">Voice call</p>
+                  <h2>{pendingIncomingCall ? 'Incoming voice call' : profile.partnerName || 'Private call'}</h2>
+                  <p>{callStatus}</p>
+                </div>
+                <button className="secondary-btn" onClick={endCall}>End</button>
+              </div>
+
+              <div className="call-hero">
+                <div className="call-avatar-large">{(profile.partnerName || profile.name || 'M')[0].toUpperCase()}</div>
+                <h3>{profile.partnerName || profile.name || 'Partner'}</h3>
+                <p>{pendingIncomingCall ? 'Tap to answer' : 'Voice call in progress'}</p>
+              </div>
+
+              <div className="call-status-card">
+                <p>{localStream ? 'Microphone connected' : 'Connecting microphone...'}</p>
+                <p>{remoteStream ? 'Connected to your partner' : 'Waiting for your partner...'}</p>
+                <audio autoPlay muted playsInline ref={(audioElement) => {
+                  if (audioElement && localStream && audioElement.srcObject !== localStream) {
+                    audioElement.srcObject = localStream
+                  }
+                }} />
+                <audio autoPlay playsInline ref={(audioElement) => {
+                  if (audioElement && remoteStream && audioElement.srcObject !== remoteStream) {
+                    audioElement.srcObject = remoteStream
+                  }
+                }} />
+              </div>
+
+              <div className="call-controls">
+                <button className="control-btn" onClick={toggleMute}>{isMuted ? '🔇 Unmute' : '🔈 Mute'}</button>
+                <button className="control-btn danger" onClick={endCall}>📵 End</button>
+              </div>
+
+              {pendingIncomingCall ? (
+                <div className="incoming-actions">
+                  <button className="accept-btn" onClick={acceptIncomingCall}>Accept</button>
+                  <button className="decline-btn" onClick={declineIncomingCall}>Decline</button>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {callError ? <p className="call-error">{callError}</p> : null}
+
+        <section className="message-list" aria-label="conversation messages" ref={messageListRef}>
           {messages.map((message) => {
             const isMine = message.senderId === profile.name
             const isSystem = message.senderId === 'system'
-            const isVoice = message.messageType === 'voice' && message.attachment
-            const isAttachment = message.messageType === 'attachment' && message.attachment
             return (
               <article key={message.id} className={`message-bubble ${isSystem ? 'system' : isMine ? 'me' : 'her'}`}>
                 {!isSystem ? <div className="message-meta">{message.senderName}</div> : null}
-                <div className="message-text">{message.text}</div>
-                {isVoice ? (
-                  <div className="message-attachment">
-                    <audio controls src={message.attachment.data} />
-                    <div className="attachment-label">Voice message</div>
-                  </div>
-                ) : null}
-                {isAttachment && !isVoice ? (
-                  <div className="message-attachment">
-                    {message.attachment.type?.startsWith('image/') ? (
-                      <img src={message.attachment.data} alt={message.attachment.name} />
-                    ) : (
-                      <a href={message.attachment.data} download={message.attachment.name} className="attachment-link">
-                        {message.attachment.name}
-                      </a>
-                    )}
-                  </div>
-                ) : null}
+                <div>{message.text}</div>
               </article>
             )
           })}
         </section>
 
-        <input
-          id="attachment-input"
-          type="file"
-          accept="image/*,video/*,application/pdf,audio/*"
-          hidden
-          onChange={handleAttachment}
-        />
-
-        {messageError ? <div className="composer-error">{messageError}</div> : null}
-
-        {(attachment || recordedAudioUrl) ? (
-          <div className="composer-preview">
-            {attachment ? (
-              <div className="attachment-card">
-                <span>Attachment:</span>
-                <strong>{attachment.name}</strong>
-                <button type="button" className="clear-btn" onClick={clearAttachment}>Remove</button>
-              </div>
-            ) : null}
-            {recordedAudioUrl ? (
-              <div className="attachment-card">
-                <span>Recording ready</span>
-                <audio controls src={recordedAudioUrl} />
-                <button type="button" className="clear-btn" onClick={clearRecordedAudio}>Remove</button>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-
         <form className="composer" onSubmit={sendMessage}>
-          <button type="button" className="composer-action" onClick={() => document.querySelector('#attachment-input')?.click()}>📎</button>
-          <button type="button" className="composer-action" onClick={() => { recording ? stopRecording() : startRecording() }}>
-            {recording ? '⏹️' : '🎙️'}
-          </button>
           <input
             type="text"
             value={draft}
