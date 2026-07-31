@@ -1,6 +1,14 @@
 :root {
   color-scheme: dark;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 16px;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  touch-action: manipulation;
 }
 
 body {
@@ -530,8 +538,18 @@ html, body, #root {
     color: #111827;
     max-height: 120px;
     overflow: auto;
-    min-height: 48px;
+    min-height: 52px;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
+
+input, textarea, button {
+  font-size: 16px;
+}
+
+.composer textarea:focus {
+  box-shadow: 0 0 0 3px rgba(37, 211, 102, 0.18);
+}
 
 .composer button {
   padding: 0 18px;

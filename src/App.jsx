@@ -337,6 +337,8 @@ function App() {
 
       const nextMessages = [...messages, nextMessage]
       saveMessages(nextMessages, normalizedRoomId)
+      setShowScrollToBottom(false)
+      scrollToBottom()
 
       if (db && firebaseReady) {
         await addDoc(collection(db, 'rooms', normalizedRoomId, 'messages'), {
@@ -400,6 +402,8 @@ function App() {
 
     const nextMessages = [...messages, nextMessage]
     saveMessages(nextMessages, normalizedRoomId)
+    setShowScrollToBottom(false)
+    scrollToBottom()
     setRecordedAudioBlob(null)
     setRecordedAudioUrl(null)
     setVoiceMessageStatus('Ready')
@@ -546,6 +550,28 @@ function App() {
   }, [messages, showScrollToBottom])
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const handleViewportResize = () => {
+      if (messageListRef.current) {
+        window.setTimeout(() => {
+          messageListRef.current?.scrollTo({
+            top: messageListRef.current.scrollHeight,
+            behavior: 'smooth',
+          })
+        }, 100)
+      }
+    }
+
+    window.visualViewport?.addEventListener('resize', handleViewportResize)
+    return () => {
+      window.visualViewport?.removeEventListener('resize', handleViewportResize)
+    }
+  }, [])
+
+  useEffect(() => {
     if (typeof window === 'undefined' || !('Notification' in window)) {
       return
     }
@@ -665,6 +691,8 @@ function App() {
     saveMessages(nextMessages, normalizedRoomId)
     setDraft('')
     sendTypingUpdate(false)
+    setShowScrollToBottom(false)
+    scrollToBottom()
 
     window.requestAnimationFrame(() => {
       if (messageInputRef.current) {
@@ -948,7 +976,15 @@ function App() {
 
               // Allow Enter to insert a new paragraph.
             }}
-            onFocus={syncMessageInputHeight}
+            onFocus={() => {
+              syncMessageInputHeight()
+              window.setTimeout(() => {
+                messageListRef.current?.scrollTo({
+                  top: messageListRef.current.scrollHeight,
+                  behavior: 'smooth',
+                })
+              }, 100)
+            }}
             onInput={(event) => {
               syncMessageInputHeight()
               sendTypingUpdate(true)
