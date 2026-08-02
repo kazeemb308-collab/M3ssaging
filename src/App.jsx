@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { addDoc, collection, onSnapshot, orderBy, query, serverTimestamp } from 'firebase/firestore'
 import { db, firebaseReady } from './firebase'
 import './App.css'
+import { mergeMessages } from './messageUtils'
 
 const demoMessages = [
   {
@@ -18,6 +19,8 @@ const defaultProfile = {
   roomId: 'couple-room',
   phoneNumber: '',
 }
+
+const createMessageClientId = () => `client-${Date.now()}-${Math.random().toString(16).slice(2)}`
 
 const getMessagesApiUrl = (roomId) => `/api/messages?room=${encodeURIComponent(roomId)}`
 
@@ -50,30 +53,6 @@ function getStoredProfile() {
   } catch {
     return defaultProfile
   }
-}
-
-function sortMessages(messages = []) {
-  return [...messages].sort((left, right) => {
-    const leftTimestamp = Number(left?.timestamp || left?.createdAt?.toMillis?.() || 0)
-    const rightTimestamp = Number(right?.timestamp || right?.createdAt?.toMillis?.() || 0)
-    return leftTimestamp - rightTimestamp
-  })
-}
-
-function mergeMessages(existingMessages = [], incomingMessages = []) {
-  const nextMessages = []
-  const seen = new Set()
-
-  for (const message of [...existingMessages, ...incomingMessages]) {
-    const key = message?.id || `${message?.senderId || 'unknown'}-${message?.text || ''}-${message?.timestamp || message?.createdAt || ''}`
-    if (seen.has(key)) {
-      continue
-    }
-    seen.add(key)
-    nextMessages.push(message)
-  }
-
-  return sortMessages(nextMessages)
 }
 
 function App() {
@@ -166,21 +145,22 @@ function App() {
   const toggleSettings = () => setSettingsOpen((current) => !current)
 
   const saveMessages = (nextMessages, roomId) => {
-    const mergedMessages = mergeMessages(messages, nextMessages)
-    setMessages(mergedMessages)
+    setMessages((currentMessages) => {
+      const mergedMessages = mergeMessages(currentMessages, nextMessages)
 
-    if (typeof window === 'undefined') {
-      return
-    }
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(`m3ssaging-messages:${roomId}`, JSON.stringify(mergedMessages))
+      }
 
-    window.localStorage.setItem(`m3ssaging-messages:${roomId}`, JSON.stringify(mergedMessages))
+      if (channelRef.current) {
+        channelRef.current.postMessage({ type: 'message-sync', roomId, messages: mergedMessages })
+      }
 
-    if (channelRef.current) {
-      channelRef.current.postMessage({ type: 'message-sync', roomId, messages: mergedMessages })
-    }
+      window.requestAnimationFrame(() => {
+        scrollToBottom()
+      })
 
-    window.requestAnimationFrame(() => {
-      scrollToBottom()
+      return mergedMessages
     })
   }
 
@@ -467,6 +447,7 @@ function App() {
 
     const nextMessage = {
       id: `local-${Date.now()}`,
+      clientId: createMessageClientId(),
       senderId: profile.name,
       senderName: profile.name,
       text: pendingAttachment.text || '📎 File',
@@ -497,6 +478,7 @@ function App() {
         body: JSON.stringify({
           roomId: normalizedRoomId,
           message: nextMessage.text,
+          clientId: nextMessage.clientId,
           senderId: profile.name,
           senderName: profile.name,
           messageType: nextMessage.messageType,
@@ -533,6 +515,7 @@ function App() {
 
     const nextMessage = {
       id: `local-${Date.now()}`,
+      clientId: createMessageClientId(),
       senderId: profile.name,
       senderName: profile.name,
       text: '🎤 Voice message',
@@ -566,6 +549,7 @@ function App() {
         body: JSON.stringify({
           roomId: normalizedRoomId,
           message: nextMessage.text,
+          clientId: nextMessage.clientId,
           senderId: profile.name,
           senderName: profile.name,
           messageType: nextMessage.messageType,
@@ -599,6 +583,7 @@ function App() {
       unsubscribeFirebase = onSnapshot(q, (snapshot) => {
         const nextMessages = snapshot.docs.map((doc) => ({
           id: doc.id,
+          clientId: doc.data().clientId || null,
           senderId: doc.data().senderId || 'unknown',
           senderName: doc.data().senderName || 'Someone',
           text: doc.data().text || '',
@@ -864,6 +849,7 @@ function App() {
     const trimmedMessage = draft.trim()
     const nextMessage = {
       id: `local-${Date.now()}`,
+      clientId: createMessageClientId(),
       senderId: profile.name,
       senderName: profile.name,
       text: trimmedMessage,
@@ -905,6 +891,7 @@ function App() {
         body: JSON.stringify({
           roomId: normalizedRoomId,
           message: trimmedMessage,
+          clientId: nextMessage.clientId,
           senderId: profile.name,
           senderName: profile.name,
           messageType: 'text',

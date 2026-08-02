@@ -25,11 +25,12 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { roomId, message, senderId, senderName, messageType, attachment, timestamp } = req.body || {}
+    const { roomId, message, clientId, senderId, senderName, messageType, attachment, timestamp } = req.body || {}
     const normalizedRoomId = normalizeRoomId(roomId)
     const existingMessages = getRoomMessages(normalizedRoomId)
     const nextMessage = {
       id: createHash('sha1').update(`${Date.now()}-${Math.random()}`).digest('hex'),
+      clientId: clientId || null,
       senderId: senderId || 'unknown',
       senderName: senderName || 'Unknown',
       text: String(message || '').trim(),
@@ -43,7 +44,21 @@ export default async function handler(req, res) {
       return
     }
 
-    const nextMessages = [...existingMessages, nextMessage]
+    const nextMessages = [...existingMessages]
+    const existingIndex = nextMessages.findIndex((existingMessage) => {
+      if (!clientId) {
+        return false
+      }
+
+      return Boolean(existingMessage?.clientId) && existingMessage.clientId === clientId
+    })
+
+    if (existingIndex >= 0) {
+      nextMessages[existingIndex] = nextMessage
+    } else {
+      nextMessages.push(nextMessage)
+    }
+
     saveRoomMessages(normalizedRoomId, nextMessages)
     res.status(200).json(nextMessages)
     return
