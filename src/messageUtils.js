@@ -56,3 +56,53 @@ export function applyReadReceipts(messages = [], messageIds = []) {
     return { ...message, read: true }
   })
 }
+
+function sanitizeMessage(message) {
+  if (!message || typeof message !== 'object') {
+    return message
+  }
+
+  if (!message.attachment || typeof message.attachment !== 'object') {
+    return message
+  }
+
+  const nextAttachment = {
+    ...message.attachment,
+    data: '',
+  }
+
+  return {
+    ...message,
+    attachment: nextAttachment,
+  }
+}
+
+export function persistMessages(roomId, messages = [], storage = window?.localStorage) {
+  if (!roomId || !Array.isArray(messages)) {
+    return false
+  }
+
+  const normalizedMessages = messages.map((message) => sanitizeMessage(message))
+  const payload = JSON.stringify(normalizedMessages)
+
+  if (!storage) {
+    return false
+  }
+
+  try {
+    storage.setItem(`m3ssaging-messages:${roomId}`, payload)
+    return true
+  } catch (error) {
+    if (error instanceof Error && /quota|storage/i.test(error.message)) {
+      const fallbackMessages = messages.map((message) => sanitizeMessage(message))
+      try {
+        storage.setItem(`m3ssaging-messages:${roomId}`, JSON.stringify(fallbackMessages))
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    return false
+  }
+}

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { addDoc, collection, doc, onSnapshot, orderBy, query, serverTimestamp, updateDoc } from 'firebase/firestore'
 import { db, firebaseReady } from './firebase'
 import './App.css'
-import { applyReadReceipts, mergeMessages } from './messageUtils'
+import { applyReadReceipts, mergeMessages, persistMessages } from './messageUtils'
 
 const demoMessages = [
   {
@@ -149,7 +149,7 @@ function App() {
       const mergedMessages = mergeMessages(currentMessages, nextMessages)
 
       if (typeof window !== 'undefined') {
-        window.localStorage.setItem(`m3ssaging-messages:${roomId}`, JSON.stringify(mergedMessages))
+        persistMessages(roomId, mergedMessages, window.localStorage)
       }
 
       if (channelRef.current) {

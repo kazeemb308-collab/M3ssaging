@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyReadReceipts, mergeMessages } from './messageUtils.js'
+import { applyReadReceipts, mergeMessages, persistMessages } from './messageUtils.js'
 
 test('deduplicates optimistic messages when the server resolves them with the same clientId', () => {
   const optimisticMessage = {
@@ -45,4 +45,42 @@ test('marks matching message ids as read without mutating unrelated messages', (
     { id: 'msg-2', text: 'World', read: false },
     { id: 'msg-3', text: 'Again', read: true },
   ])
+})
+
+test('falls back to compact storage when persisting a large attachment would exceed quota', () => {
+  const storage = {
+    values: new Map(),
+    setItem(key, value) {
+      if (value.includes('data:image')) {
+        throw new Error('QuotaExceededError')
+      }
+
+      this.values.set(key, value)
+    },
+    getItem(key) {
+      return this.values.get(key) || null
+    },
+    removeItem(key) {
+      this.values.delete(key)
+    },
+  }
+
+  const messages = [
+    {
+      id: 'msg-1',
+      text: 'Photo',
+      attachment: {
+        name: 'photo.png',
+        type: 'image/png',
+        data: 'data:image/png;base64,AAAA',
+      },
+    },
+  ]
+
+  const persisted = persistMessages('room-1', messages, storage)
+
+  assert.equal(persisted, true)
+  const storedMessages = JSON.parse(storage.getItem('m3ssaging-messages:room-1'))
+  assert.equal(storedMessages[0].attachment?.data, '')
+  assert.equal(storedMessages[0].attachment?.name, 'photo.png')
 })
