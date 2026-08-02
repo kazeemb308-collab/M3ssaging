@@ -574,13 +574,15 @@ html, body, #root {
   z-index: 20;
   display: flex;
   gap: 8px;
-  padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+  padding: 12px 12px calc(12px + max(env(safe-area-inset-bottom), 12px));
   background: rgba(240, 242, 245, 0.98);
   border-top: 1px solid #e5e7eb;
   align-items: center;
   min-height: 64px;
   flex-wrap: nowrap;
-  overflow-x: auto;
+  overflow-x: hidden;
+  box-shadow: 0 -6px 18px rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(10px);
 }
 
 .composer-action {
@@ -771,7 +773,7 @@ input, textarea, button {
   }
 
   .message-list {
-    padding: 14px 14px calc(120px + env(safe-area-inset-bottom));
+    padding: 14px 14px calc(148px + env(safe-area-inset-bottom));
     gap: 10px;
   }
 
@@ -780,8 +782,8 @@ input, textarea, button {
   }
 
   .composer {
-    padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
-    position: fixed;
+    padding: 12px 14px calc(12px + max(env(safe-area-inset-bottom), 12px));
+    position: sticky;
     bottom: 0;
     left: 0;
     right: 0;
