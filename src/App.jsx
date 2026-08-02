@@ -622,6 +622,13 @@ function App() {
         setMessages(mergedMessages)
         window.localStorage.setItem(`m3ssaging-messages:${normalizedRoomId}`, JSON.stringify(mergedMessages))
       }
+
+      if (profile.name) {
+        const unreadMessages = messages.filter((message) => message.senderId !== profile.name && !message.read)
+        if (unreadMessages.length) {
+          await sendReadReceipt(unreadMessages.map((message) => message.id))
+        }
+      }
     }
 
     void loadMessages()
@@ -648,7 +655,7 @@ function App() {
         return
       }
 
-      if (event.data.type === 'read-receipt' && event.data.senderId !== profile.name) {
+        if (event.data.type === 'read-receipt' && event.data.senderId !== profile.name) {
         setMessages((currentMessages) => applyReadReceipts(currentMessages, event.data.messageIds || []))
         return
       }
