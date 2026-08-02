@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { addDoc, collection, onSnapshot, orderBy, query, serverTimestamp } from 'firebase/firestore'
+import { addDoc, collection, doc, onSnapshot, orderBy, query, serverTimestamp, updateDoc } from 'firebase/firestore'
 import { db, firebaseReady } from './firebase'
 import './App.css'
 import { applyReadReceipts, mergeMessages } from './messageUtils'
@@ -178,17 +178,23 @@ function App() {
       })
     }
 
-    if (!db || !firebaseReady) {
+    try {
+      await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomId: normalizedRoomId,
+          readMessageIds: messageIds,
+          read: true,
+        }),
+      })
+    } catch {
+      // best-effort only
+    }
+
+    if (db && firebaseReady) {
       try {
-        await fetch('/api/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            roomId: normalizedRoomId,
-            readMessageIds: messageIds,
-            read: true,
-          }),
-        })
+        await Promise.all(messageIds.map((messageId) => updateDoc(doc(db, 'rooms', normalizedRoomId, 'messages', messageId), { read: true })))
       } catch {
         // best-effort only
       }
