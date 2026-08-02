@@ -655,7 +655,7 @@ function App() {
         return
       }
 
-        if (event.data.type === 'read-receipt' && event.data.senderId !== profile.name) {
+      if (event.data.type === 'read-receipt' && event.data.senderId !== profile.name) {
         setMessages((currentMessages) => applyReadReceipts(currentMessages, event.data.messageIds || []))
         return
       }
