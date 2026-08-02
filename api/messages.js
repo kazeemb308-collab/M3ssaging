@@ -17,6 +17,16 @@ function saveRoomMessages(roomId, messages) {
   return messages
 }
 
+export function applyReadReceipts(messages = [], messageIds = [], read = true) {
+  return messages.map((message) => {
+    if (!Array.isArray(messageIds) || !messageIds.includes(message?.id)) {
+      return message
+    }
+
+    return { ...message, read: Boolean(read) }
+  })
+}
+
 export default async function handler(req, res) {
   if (req.method === 'GET') {
     const roomId = req.query.room || 'default'
@@ -25,9 +35,28 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { roomId, message, clientId, senderId, senderName, messageType, attachment, timestamp } = req.body || {}
+    const {
+      roomId,
+      message,
+      clientId,
+      senderId,
+      senderName,
+      messageType,
+      attachment,
+      timestamp,
+      readMessageIds,
+      read,
+    } = req.body || {}
     const normalizedRoomId = normalizeRoomId(roomId)
     const existingMessages = getRoomMessages(normalizedRoomId)
+
+    if (Array.isArray(readMessageIds)) {
+      const nextMessages = applyReadReceipts(existingMessages, readMessageIds, read)
+      saveRoomMessages(normalizedRoomId, nextMessages)
+      res.status(200).json(nextMessages)
+      return
+    }
+
     const nextMessage = {
       id: createHash('sha1').update(`${Date.now()}-${Math.random()}`).digest('hex'),
       clientId: clientId || null,
@@ -37,6 +66,7 @@ export default async function handler(req, res) {
       messageType: String(messageType || 'text'),
       attachment: attachment || null,
       timestamp: typeof timestamp === 'number' ? timestamp : Date.now(),
+      read: false,
     }
 
     if (!nextMessage.text && !nextMessage.attachment) {

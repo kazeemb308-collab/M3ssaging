@@ -529,11 +529,20 @@ html, body, #root {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.9);
   color: #111827;
   font-size: 0.75rem;
   font-weight: 700;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.message-status.sent {
+  background: rgba(255, 255, 255, 0.9);
+  color: #4b5563;
+}
+
+.message-status.read {
+  background: rgba(120, 214, 157, 0.24);
+  color: #0f766e;
 }
 
 .typing-indicator {

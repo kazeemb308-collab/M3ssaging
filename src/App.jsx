@@ -206,7 +206,7 @@ function App() {
     }
 
     const nextMessages = incomingMessages.map((message) => {
-      if (message.senderId !== profile.name) {
+      if (message.senderId !== profile.name && unreadIncoming.some((unreadMessage) => unreadMessage.id === message.id)) {
         return { ...message, read: true }
       }
       return message
@@ -1102,13 +1102,13 @@ function App() {
                     <div className="message-timestamp">
                       {message.timestamp ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                     </div>
-                    {isMine && message.read ? (
+                    {isMine ? (
                       <div
-                        className="message-status"
-                        aria-label="Seen by partner"
-                        title="Seen by partner"
+                        className={`message-status ${message.read ? 'read' : 'sent'}`}
+                        aria-label={message.read ? 'Seen by partner' : 'Sent'}
+                        title={message.read ? 'Seen by partner' : 'Sent'}
                       >
-                        ✓✓
+                        {message.read ? '✓✓' : '✓'}
                       </div>
                     ) : null}
                   </div>
