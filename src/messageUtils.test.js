@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mergeMessages } from './messageUtils.js'
+import { applyReadReceipts, mergeMessages } from './messageUtils.js'
 
 test('deduplicates optimistic messages when the server resolves them with the same clientId', () => {
   const optimisticMessage = {
@@ -29,4 +29,20 @@ test('deduplicates optimistic messages when the server resolves them with the sa
   assert.equal(result[0].id, 'server-1')
   assert.equal(result[0].clientId, 'client-1')
   assert.equal(result[0].read, true)
+})
+
+test('marks matching message ids as read without mutating unrelated messages', () => {
+  const messages = [
+    { id: 'msg-1', text: 'Hello', read: false },
+    { id: 'msg-2', text: 'World', read: false },
+    { id: 'msg-3', text: 'Again', read: false },
+  ]
+
+  const result = applyReadReceipts(messages, ['msg-1', 'msg-3'])
+
+  assert.deepEqual(result, [
+    { id: 'msg-1', text: 'Hello', read: true },
+    { id: 'msg-2', text: 'World', read: false },
+    { id: 'msg-3', text: 'Again', read: true },
+  ])
 })

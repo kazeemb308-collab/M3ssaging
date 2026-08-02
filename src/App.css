@@ -537,12 +537,13 @@ html, body, #root {
 
 .message-status.sent {
   background: rgba(255, 255, 255, 0.9);
-  color: #4b5563;
+  color: #6b7280;
 }
 
 .message-status.read {
-  background: rgba(120, 214, 157, 0.24);
-  color: #0f766e;
+  background: rgba(16, 185, 129, 0.12);
+  color: #047857;
+  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.16);
 }
 
 .typing-indicator {

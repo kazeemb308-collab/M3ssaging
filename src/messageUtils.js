@@ -28,7 +28,10 @@ export function mergeMessages(existingMessages = [], incomingMessages = []) {
     const currentIndex = indexByKey.get(key)
 
     if (typeof currentIndex === 'number') {
-      nextMessages[currentIndex] = message
+      nextMessages[currentIndex] = {
+        ...nextMessages[currentIndex],
+        ...message,
+      }
       continue
     }
 
@@ -37,4 +40,19 @@ export function mergeMessages(existingMessages = [], incomingMessages = []) {
   }
 
   return sortMessages(nextMessages)
+}
+
+export function applyReadReceipts(messages = [], messageIds = []) {
+  if (!Array.isArray(messageIds) || !messageIds.length) {
+    return messages
+  }
+
+  const nextMessageIds = new Set(messageIds)
+  return messages.map((message) => {
+    if (!nextMessageIds.has(message?.id)) {
+      return message
+    }
+
+    return { ...message, read: true }
+  })
 }

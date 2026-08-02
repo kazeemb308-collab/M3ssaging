@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { addDoc, collection, onSnapshot, orderBy, query, serverTimestamp } from 'firebase/firestore'
 import { db, firebaseReady } from './firebase'
 import './App.css'
-import { mergeMessages } from './messageUtils'
+import { applyReadReceipts, mergeMessages } from './messageUtils'
 
 const demoMessages = [
   {
@@ -196,7 +196,7 @@ function App() {
   }
 
   const markIncomingMessagesRead = async (incomingMessages = messages) => {
-    if (typeof window === 'undefined' || !profile.name || document.visibilityState !== 'visible') {
+    if (typeof window === 'undefined' || !profile.name) {
       return
     }
 
@@ -205,13 +205,7 @@ function App() {
       return
     }
 
-    const nextMessages = incomingMessages.map((message) => {
-      if (message.senderId !== profile.name && unreadIncoming.some((unreadMessage) => unreadMessage.id === message.id)) {
-        return { ...message, read: true }
-      }
-      return message
-    })
-
+    const nextMessages = applyReadReceipts(incomingMessages, unreadIncoming.map((message) => message.id))
     saveMessages(nextMessages, normalizedRoomId)
     await sendReadReceipt(unreadIncoming.map((message) => message.id))
   }
@@ -649,12 +643,7 @@ function App() {
       }
 
       if (event.data.type === 'read-receipt' && event.data.senderId !== profile.name) {
-        setMessages((currentMessages) => currentMessages.map((message) => {
-          if (event.data.messageIds?.includes(message.id)) {
-            return { ...message, read: true }
-          }
-          return message
-        }))
+        setMessages((currentMessages) => applyReadReceipts(currentMessages, event.data.messageIds || []))
         return
       }
 
