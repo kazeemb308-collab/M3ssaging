@@ -855,7 +855,7 @@ function App() {
       timestamp: Date.now(),
       read: false,
       delivered: false,
-      status: 'sent',
+      status: 'sending',
       replyTo: replyToMessage ? {
         id: replyToMessage.id,
         senderName: replyToMessage.senderName || 'Someone',
@@ -872,10 +872,40 @@ function App() {
     scrollToBottom()
 
     if (db && firebaseReady) {
-      await addDoc(collection(db, 'rooms', normalizedRoomId, 'messages'), {
-        ...nextMessage,
-        createdAt: serverTimestamp(),
-      })
+      try {
+        await addDoc(collection(db, 'rooms', normalizedRoomId, 'messages'), {
+          ...nextMessage,
+          createdAt: serverTimestamp(),
+        })
+
+        setMessages((currentMessages) => currentMessages.map((message) => {
+          if (message.clientId !== nextMessage.clientId && message.id !== nextMessage.id) {
+            return message
+          }
+
+          return {
+            ...message,
+            status: 'sent',
+            delivered: false,
+            read: false,
+          }
+        }))
+      } catch (error) {
+        console.error(error)
+        setUploadError('Unable to send file. Please try again.')
+        setMessages((currentMessages) => currentMessages.map((message) => {
+          if (message.clientId !== nextMessage.clientId && message.id !== nextMessage.id) {
+            return message
+          }
+
+          return {
+            ...message,
+            status: 'failed',
+            delivered: false,
+            read: false,
+          }
+        }))
+      }
       return
     }
 
@@ -902,10 +932,35 @@ function App() {
       if (response.ok) {
         const remoteMessages = await response.json()
         saveMessages(remoteMessages, normalizedRoomId)
+      } else {
+        setMessages((currentMessages) => currentMessages.map((message) => {
+          if (message.clientId !== nextMessage.clientId && message.id !== nextMessage.id) {
+            return message
+          }
+
+          return {
+            ...message,
+            status: 'failed',
+            delivered: false,
+            read: false,
+          }
+        }))
       }
     } catch (error) {
       console.error(error)
       setUploadError('Unable to send file. Please try again.')
+      setMessages((currentMessages) => currentMessages.map((message) => {
+        if (message.clientId !== nextMessage.clientId && message.id !== nextMessage.id) {
+          return message
+        }
+
+        return {
+          ...message,
+          status: 'failed',
+          delivered: false,
+          read: false,
+        }
+      }))
     }
   }
 
@@ -936,7 +991,7 @@ function App() {
       timestamp: Date.now(),
       read: false,
       delivered: false,
-      status: 'sent',
+      status: 'sending',
       replyTo: replyToMessage ? {
         id: replyToMessage.id,
         senderName: replyToMessage.senderName || 'Someone',
@@ -955,10 +1010,40 @@ function App() {
     setRecordingDuration(0)
 
     if (db && firebaseReady) {
-      await addDoc(collection(db, 'rooms', normalizedRoomId, 'messages'), {
-        ...nextMessage,
-        createdAt: serverTimestamp(),
-      })
+      try {
+        await addDoc(collection(db, 'rooms', normalizedRoomId, 'messages'), {
+          ...nextMessage,
+          createdAt: serverTimestamp(),
+        })
+
+        setMessages((currentMessages) => currentMessages.map((message) => {
+          if (message.clientId !== nextMessage.clientId && message.id !== nextMessage.id) {
+            return message
+          }
+
+          return {
+            ...message,
+            status: 'sent',
+            delivered: false,
+            read: false,
+          }
+        }))
+      } catch (error) {
+        console.error(error)
+        setUploadError('Unable to send voice message. Please try again.')
+        setMessages((currentMessages) => currentMessages.map((message) => {
+          if (message.clientId !== nextMessage.clientId && message.id !== nextMessage.id) {
+            return message
+          }
+
+          return {
+            ...message,
+            status: 'failed',
+            delivered: false,
+            read: false,
+          }
+        }))
+      }
       return
     }
 
@@ -975,9 +1060,9 @@ function App() {
           messageType: nextMessage.messageType,
           attachment,
           timestamp: nextMessage.timestamp,
-          status: nextMessage.status,
-          delivered: nextMessage.delivered,
-          read: nextMessage.read,
+          status: 'sent',
+          delivered: false,
+          read: false,
           replyTo: nextMessage.replyTo,
         }),
       })
@@ -985,10 +1070,35 @@ function App() {
       if (response.ok) {
         const remoteMessages = await response.json()
         saveMessages(remoteMessages, normalizedRoomId)
+      } else {
+        setMessages((currentMessages) => currentMessages.map((message) => {
+          if (message.clientId !== nextMessage.clientId && message.id !== nextMessage.id) {
+            return message
+          }
+
+          return {
+            ...message,
+            status: 'failed',
+            delivered: false,
+            read: false,
+          }
+        }))
       }
     } catch (error) {
       console.error(error)
       setUploadError('Unable to send voice message. Please try again.')
+      setMessages((currentMessages) => currentMessages.map((message) => {
+        if (message.clientId !== nextMessage.clientId && message.id !== nextMessage.id) {
+          return message
+        }
+
+        return {
+          ...message,
+          status: 'failed',
+          delivered: false,
+          read: false,
+        }
+      }))
     }
   }
 
@@ -1368,7 +1478,7 @@ function App() {
       timestamp: Date.now(),
       read: false,
       delivered: false,
-      status: 'sent',
+      status: 'sending',
       replyTo: replyToMessage ? {
         id: replyToMessage.id,
         senderName: replyToMessage.senderName || 'Someone',
@@ -1395,19 +1505,47 @@ function App() {
     })
 
     if (db && firebaseReady) {
-      await addDoc(collection(db, 'rooms', normalizedRoomId, 'messages'), {
-        text: trimmedMessage,
-        clientId: nextMessage.clientId,
-        senderId: profile.name,
-        senderName: profile.name,
-        messageType: 'text',
-        createdAt: serverTimestamp(),
-        timestamp: Date.now(),
-        status: 'sent',
-        delivered: false,
-        read: false,
-        replyTo: nextMessage.replyTo,
-      })
+      try {
+        await addDoc(collection(db, 'rooms', normalizedRoomId, 'messages'), {
+          text: trimmedMessage,
+          clientId: nextMessage.clientId,
+          senderId: profile.name,
+          senderName: profile.name,
+          messageType: 'text',
+          createdAt: serverTimestamp(),
+          timestamp: Date.now(),
+          status: 'sent',
+          delivered: false,
+          read: false,
+          replyTo: nextMessage.replyTo,
+        })
+
+        setMessages((currentMessages) => currentMessages.map((message) => {
+          if (message.clientId !== nextMessage.clientId && message.id !== nextMessage.id) {
+            return message
+          }
+
+          return {
+            ...message,
+            status: 'sent',
+            delivered: false,
+            read: false,
+          }
+        }))
+      } catch {
+        setMessages((currentMessages) => currentMessages.map((message) => {
+          if (message.clientId !== nextMessage.clientId && message.id !== nextMessage.id) {
+            return message
+          }
+
+          return {
+            ...message,
+            status: 'failed',
+            delivered: false,
+            read: false,
+          }
+        }))
+      }
       return
     }
 
@@ -1433,9 +1571,33 @@ function App() {
       if (response.ok) {
         const remoteMessages = await response.json()
         saveMessages(remoteMessages, normalizedRoomId)
+      } else {
+        setMessages((currentMessages) => currentMessages.map((message) => {
+          if (message.clientId !== nextMessage.clientId && message.id !== nextMessage.id) {
+            return message
+          }
+
+          return {
+            ...message,
+            status: 'failed',
+            delivered: false,
+            read: false,
+          }
+        }))
       }
     } catch {
-      // Remote sync will retry on the next poll if the API is temporarily unavailable.
+      setMessages((currentMessages) => currentMessages.map((message) => {
+        if (message.clientId !== nextMessage.clientId && message.id !== nextMessage.id) {
+          return message
+        }
+
+        return {
+          ...message,
+          status: 'failed',
+          delivered: false,
+          read: false,
+        }
+      }))
     }
   }
 
@@ -1700,10 +1862,10 @@ function App() {
                           ) : null}
                           <div
                             className={`message-status ${messageStatus}`}
-                            aria-label={messageStatus === 'seen' ? 'Seen by partner' : messageStatus === 'delivered' ? 'Delivered' : 'Sent'}
-                            title={messageStatus === 'seen' ? 'Seen by partner' : messageStatus === 'delivered' ? 'Delivered' : 'Sent'}
+                            aria-label={messageStatus === 'seen' ? 'Seen by partner' : messageStatus === 'delivered' ? 'Delivered' : messageStatus === 'sending' ? 'Sending' : messageStatus === 'failed' ? 'Message not sent' : 'Sent'}
+                            title={messageStatus === 'seen' ? 'Seen by partner' : messageStatus === 'delivered' ? 'Delivered' : messageStatus === 'sending' ? 'Sending' : messageStatus === 'failed' ? 'Message not sent' : 'Sent'}
                           >
-                            {messageStatus === 'seen' || messageStatus === 'delivered' ? '✓✓' : '✓'}
+                            {messageStatus === 'sending' ? '⟳' : messageStatus === 'failed' ? '!' : messageStatus === 'seen' || messageStatus === 'delivered' ? '✓✓' : '✓'}
                           </div>
                         </div>
                       ) : null}

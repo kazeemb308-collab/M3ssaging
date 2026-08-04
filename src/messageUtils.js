@@ -156,6 +156,14 @@ export function applyReadReceipts(messages = [], messageIds = []) {
 }
 
 export function getMessageStatus(message = {}) {
+  if (message?.status === 'sending') {
+    return 'sending'
+  }
+
+  if (message?.status === 'failed') {
+    return 'failed'
+  }
+
   if (message?.read || message?.status === 'seen') {
     return 'seen'
   }

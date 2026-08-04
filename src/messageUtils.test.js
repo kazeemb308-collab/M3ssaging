@@ -153,3 +153,8 @@ test('derives WhatsApp-like statuses from delivery and read state', () => {
   assert.equal(getMessageStatus({ read: false, delivered: true }), 'delivered')
   assert.equal(getMessageStatus({ read: true }), 'seen')
 })
+
+test('supports sending and failed network states for outgoing messages', () => {
+  assert.equal(getMessageStatus({ status: 'sending' }), 'sending')
+  assert.equal(getMessageStatus({ status: 'failed' }), 'failed')
+})

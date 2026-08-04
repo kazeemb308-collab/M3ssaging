@@ -817,6 +817,18 @@ html, body, #root {
   color: #6b7280;
 }
 
+.message-status.sending {
+  background: rgba(245, 158, 11, 0.16);
+  color: #b45309;
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.32);
+}
+
+.message-status.failed {
+  background: rgba(239, 68, 68, 0.16);
+  color: #b91c1c;
+  box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.34);
+}
+
 .message-status.delivered {
   background: rgba(255, 255, 255, 0.9);
   color: #6b7280;
