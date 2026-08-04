@@ -46,6 +46,9 @@ export default async function handler(req, res) {
       timestamp,
       readMessageIds,
       read,
+      status,
+      delivered,
+      replyTo,
     } = req.body || {}
     const normalizedRoomId = normalizeRoomId(roomId)
     const existingMessages = getRoomMessages(normalizedRoomId)
@@ -67,6 +70,9 @@ export default async function handler(req, res) {
       attachment: attachment || null,
       timestamp: typeof timestamp === 'number' ? timestamp : Date.now(),
       read: false,
+      delivered: Boolean(delivered || status === 'delivered' || status === 'seen'),
+      status: String(status || 'sent'),
+      replyTo: replyTo || null,
     }
 
     if (!nextMessage.text && !nextMessage.attachment) {

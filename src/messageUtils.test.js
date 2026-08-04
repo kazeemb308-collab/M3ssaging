@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyReadReceipts, mergeMessages, persistMessages } from './messageUtils.js'
+import { applyReadReceipts, getMessageStatus, mergeMessages, persistMessages } from './messageUtils.js'
 
 test('deduplicates optimistic messages when the server resolves them with the same clientId', () => {
   const optimisticMessage = {
@@ -41,20 +41,16 @@ test('marks matching message ids as read without mutating unrelated messages', (
   const result = applyReadReceipts(messages, ['msg-1', 'msg-3'])
 
   assert.deepEqual(result, [
-    { id: 'msg-1', text: 'Hello', read: true },
+    { id: 'msg-1', text: 'Hello', read: true, delivered: true, status: 'seen' },
     { id: 'msg-2', text: 'World', read: false },
-    { id: 'msg-3', text: 'Again', read: true },
+    { id: 'msg-3', text: 'Again', read: true, delivered: true, status: 'seen' },
   ])
 })
 
-test('falls back to compact storage when persisting a large attachment would exceed quota', () => {
+test('keeps attachment data in storage while preserving message metadata', () => {
   const storage = {
     values: new Map(),
     setItem(key, value) {
-      if (value.includes('data:image')) {
-        throw new Error('QuotaExceededError')
-      }
-
       this.values.set(key, value)
     },
     getItem(key) {
@@ -81,6 +77,12 @@ test('falls back to compact storage when persisting a large attachment would exc
 
   assert.equal(persisted, true)
   const storedMessages = JSON.parse(storage.getItem('m3ssaging-messages:room-1'))
-  assert.equal(storedMessages[0].attachment?.data, '')
+  assert.equal(storedMessages[0].attachment?.data, 'data:image/png;base64,AAAA')
   assert.equal(storedMessages[0].attachment?.name, 'photo.png')
+})
+
+test('derives WhatsApp-like statuses from delivery and read state', () => {
+  assert.equal(getMessageStatus({ read: false, delivered: false }), 'sent')
+  assert.equal(getMessageStatus({ read: false, delivered: true }), 'delivered')
+  assert.equal(getMessageStatus({ read: true }), 'seen')
 })

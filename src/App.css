@@ -531,6 +531,57 @@ html, body, #root {
   word-break: break-word;
 }
 
+.reply-preview-chip {
+  border: 1px solid rgba(18, 140, 126, 0.16);
+  background: rgba(37, 211, 102, 0.08);
+  border-radius: 12px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  font-size: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.reply-preview-chip span {
+  color: #128c7e;
+  font-weight: 700;
+}
+
+.reply-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  margin: 0 16px 12px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(17, 24, 39, 0.08);
+  border-radius: 14px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
+}
+
+.reply-bar div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.reply-bar span {
+  color: #128c7e;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.reply-bar strong {
+  font-size: 0.86rem;
+  color: #111827;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .message-bubble.me {
   align-self: flex-end;
   background: linear-gradient(135deg, #e6d4ff, #b7f0c7);
@@ -579,7 +630,12 @@ html, body, #root {
   color: #6b7280;
 }
 
-.message-status.read {
+.message-status.delivered {
+  background: rgba(255, 255, 255, 0.9);
+  color: #6b7280;
+}
+
+.message-status.seen {
   background: rgba(16, 185, 129, 0.12);
   color: #047857;
   box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.16);

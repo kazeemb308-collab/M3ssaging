@@ -53,28 +53,86 @@ export function applyReadReceipts(messages = [], messageIds = []) {
       return message
     }
 
-    return { ...message, read: true }
+    return {
+      ...message,
+      read: true,
+      delivered: true,
+      status: 'seen',
+    }
   })
 }
 
-function sanitizeMessage(message) {
-  if (!message || typeof message !== 'object') {
-    return message
+export function getMessageStatus(message = {}) {
+  if (message?.read || message?.status === 'seen') {
+    return 'seen'
   }
 
-  if (!message.attachment || typeof message.attachment !== 'object') {
-    return message
+  if (message?.delivered || message?.status === 'delivered') {
+    return 'delivered'
   }
 
-  const nextAttachment = {
-    ...message.attachment,
-    data: '',
+  return 'sent'
+}
+
+function getAttachmentStoreKey(roomId) {
+  return `m3ssaging-attachments:${roomId}`
+}
+
+function readAttachmentStore(storage, roomId) {
+  if (!storage) {
+    return {}
   }
 
-  return {
-    ...message,
-    attachment: nextAttachment,
+  try {
+    const stored = storage.getItem(getAttachmentStoreKey(roomId))
+    if (!stored) {
+      return {}
+    }
+
+    const parsed = JSON.parse(stored)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
   }
+}
+
+function writeAttachmentStore(storage, roomId, attachments) {
+  if (!storage) {
+    return false
+  }
+
+  try {
+    storage.setItem(getAttachmentStoreKey(roomId), JSON.stringify(attachments))
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function hydrateMessagesWithAttachments(roomId, messages = [], storage = window?.localStorage) {
+  if (!roomId || !Array.isArray(messages)) {
+    return messages
+  }
+
+  const attachments = readAttachmentStore(storage, roomId)
+  return messages.map((message) => {
+    if (!message || typeof message !== 'object' || !message.attachment || typeof message.attachment !== 'object') {
+      return message
+    }
+
+    const nextAttachment = { ...message.attachment }
+    const attachmentId = nextAttachment.attachmentId || nextAttachment.id
+    const storedData = attachmentId ? attachments[attachmentId] : null
+
+    if (!nextAttachment.data && storedData) {
+      nextAttachment.data = storedData
+    }
+
+    return {
+      ...message,
+      attachment: nextAttachment,
+    }
+  })
 }
 
 export function persistMessages(roomId, messages = [], storage = window?.localStorage) {
@@ -82,7 +140,32 @@ export function persistMessages(roomId, messages = [], storage = window?.localSt
     return false
   }
 
-  const normalizedMessages = messages.map((message) => sanitizeMessage(message))
+  const attachments = readAttachmentStore(storage, roomId)
+  const normalizedMessages = messages.map((message) => {
+    if (!message || typeof message !== 'object') {
+      return message
+    }
+
+    const nextMessage = { ...message }
+    if (!nextMessage.attachment || typeof nextMessage.attachment !== 'object') {
+      return nextMessage
+    }
+
+    const nextAttachment = { ...nextMessage.attachment }
+    const attachmentId = nextAttachment.attachmentId || nextAttachment.id || `${nextMessage.id || nextMessage.clientId || 'attachment'}-${Date.now()}`
+
+    if (typeof nextAttachment.data === 'string' && nextAttachment.data.length > 160000) {
+      attachments[attachmentId] = nextAttachment.data
+      nextAttachment.data = ''
+      nextAttachment.attachmentId = attachmentId
+    } else {
+      nextAttachment.attachmentId = attachmentId
+    }
+
+    nextMessage.attachment = nextAttachment
+    return nextMessage
+  })
+
   const payload = JSON.stringify(normalizedMessages)
 
   if (!storage) {
@@ -91,18 +174,9 @@ export function persistMessages(roomId, messages = [], storage = window?.localSt
 
   try {
     storage.setItem(`m3ssaging-messages:${roomId}`, payload)
+    writeAttachmentStore(storage, roomId, attachments)
     return true
-  } catch (error) {
-    if (error instanceof Error && /quota|storage/i.test(error.message)) {
-      const fallbackMessages = messages.map((message) => sanitizeMessage(message))
-      try {
-        storage.setItem(`m3ssaging-messages:${roomId}`, JSON.stringify(fallbackMessages))
-        return true
-      } catch {
-        return false
-      }
-    }
-
+  } catch {
     return false
   }
 }

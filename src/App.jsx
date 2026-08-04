@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { addDoc, collection, doc, onSnapshot, orderBy, query, serverTimestamp, updateDoc } from 'firebase/firestore'
 import { db, firebaseReady } from './firebase'
 import './App.css'
-import { applyReadReceipts, mergeMessages, persistMessages } from './messageUtils'
+import { applyReadReceipts, getMessageStatus, hydrateMessagesWithAttachments, mergeMessages, persistMessages } from './messageUtils'
 
 const demoMessages = [
   {
@@ -77,6 +77,7 @@ function App() {
   const [recordingDuration, setRecordingDuration] = useState(0)
   const [lightboxImage, setLightboxImage] = useState(null)
   const [pendingAttachment, setPendingAttachment] = useState(null)
+  const [replyToMessage, setReplyToMessage] = useState(null)
   const [peerTyping, setPeerTyping] = useState(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState(null)
@@ -162,6 +163,36 @@ function App() {
 
       return mergedMessages
     })
+  }
+
+  const markMessageDelivered = (clientId) => {
+    setMessages((currentMessages) => {
+      const nextMessages = currentMessages.map((message) => {
+        if (message.clientId !== clientId && message.id !== clientId) {
+          return message
+        }
+
+        return {
+          ...message,
+          status: 'delivered',
+          delivered: true,
+          read: false,
+        }
+      })
+
+      if (typeof window !== 'undefined') {
+        persistMessages(normalizedRoomId, nextMessages, window.localStorage)
+      }
+
+      return nextMessages
+    })
+  }
+
+  const beginReplyToMessage = (message) => {
+    setReplyToMessage(message)
+    if (messageInputRef.current) {
+      messageInputRef.current.focus()
+    }
   }
 
   const sendReadReceipt = async (messageIds) => {
@@ -455,11 +486,20 @@ function App() {
       attachment: pendingAttachment.attachment,
       timestamp: Date.now(),
       read: false,
+      delivered: false,
+      status: 'sent',
+      replyTo: replyToMessage ? {
+        id: replyToMessage.id,
+        senderName: replyToMessage.senderName || 'Someone',
+        text: replyToMessage.text || (replyToMessage.messageType === 'image' ? 'Photo' : replyToMessage.messageType === 'audio' ? 'Voice message' : 'Message'),
+        messageType: replyToMessage.messageType || 'text',
+      } : null,
     }
 
     const nextMessages = [...messages, nextMessage]
     saveMessages(nextMessages, normalizedRoomId)
     setPendingAttachment(null)
+    setReplyToMessage(null)
     setShowScrollToBottom(false)
     scrollToBottom()
 
@@ -523,6 +563,14 @@ function App() {
       attachment,
       timestamp: Date.now(),
       read: false,
+      delivered: false,
+      status: 'sent',
+      replyTo: replyToMessage ? {
+        id: replyToMessage.id,
+        senderName: replyToMessage.senderName || 'Someone',
+        text: replyToMessage.text || (replyToMessage.messageType === 'image' ? 'Photo' : replyToMessage.messageType === 'audio' ? 'Voice message' : 'Message'),
+        messageType: replyToMessage.messageType || 'text',
+      } : null,
     }
 
     const nextMessages = [...messages, nextMessage]
@@ -590,6 +638,10 @@ function App() {
           messageType: doc.data().messageType || 'text',
           attachment: doc.data().attachment || null,
           timestamp: doc.data().timestamp || doc.data().createdAt?.toMillis?.() || Date.now(),
+          read: Boolean(doc.data().read),
+          delivered: Boolean(doc.data().delivered || doc.data().read),
+          status: doc.data().status || (doc.data().read ? 'seen' : doc.data().delivered ? 'delivered' : 'sent'),
+          replyTo: doc.data().replyTo || null,
         }))
 
         setMessages((currentMessages) => mergeMessages(currentMessages, nextMessages))
@@ -602,7 +654,7 @@ function App() {
         try {
           const parsedMessages = JSON.parse(savedMessages)
           if (Array.isArray(parsedMessages) && parsedMessages.length > 0) {
-            setMessages(parsedMessages)
+            setMessages(hydrateMessagesWithAttachments(normalizedRoomId, parsedMessages, window.localStorage))
           }
         } catch {
           setMessages(demoMessages)
@@ -615,12 +667,16 @@ function App() {
           ...message,
           timestamp: message.timestamp || Date.now(),
           read: Boolean(message.read),
+          delivered: Boolean(message.delivered || message.read),
+          status: message.status || (message.read ? 'seen' : message.delivered ? 'delivered' : 'sent'),
+          replyTo: message.replyTo || null,
         }))
         const savedMessages = window.localStorage.getItem(`m3ssaging-messages:${normalizedRoomId}`)
         const existingMessages = savedMessages ? JSON.parse(savedMessages) : []
         const mergedMessages = mergeMessages(existingMessages, normalizedRemoteMessages)
-        setMessages(mergedMessages)
-        window.localStorage.setItem(`m3ssaging-messages:${normalizedRoomId}`, JSON.stringify(mergedMessages))
+        const hydratedMessages = hydrateMessagesWithAttachments(normalizedRoomId, mergedMessages, window.localStorage)
+        setMessages(hydratedMessages)
+        window.localStorage.setItem(`m3ssaging-messages:${normalizedRoomId}`, JSON.stringify(hydratedMessages))
       }
 
       if (profile.name) {
@@ -813,6 +869,7 @@ function App() {
         text: `Welcome ${name}! Use room ${roomId} on both devices to chat, send voice messages, and share files.`,
       },
     ])
+    void requestNotificationPermission()
     setDraft('')
 
     window.requestAnimationFrame(() => {
@@ -857,11 +914,20 @@ function App() {
       text: trimmedMessage,
       timestamp: Date.now(),
       read: false,
+      delivered: false,
+      status: 'sent',
+      replyTo: replyToMessage ? {
+        id: replyToMessage.id,
+        senderName: replyToMessage.senderName || 'Someone',
+        text: replyToMessage.text || (replyToMessage.messageType === 'image' ? 'Photo' : replyToMessage.messageType === 'audio' ? 'Voice message' : 'Message'),
+        messageType: replyToMessage.messageType || 'text',
+      } : null,
     }
 
     const nextMessages = [...messages, nextMessage]
     saveMessages(nextMessages, normalizedRoomId)
     setDraft('')
+    setReplyToMessage(null)
     sendTypingUpdate(false)
     setShowScrollToBottom(false)
     scrollToBottom()
@@ -882,7 +948,12 @@ function App() {
         senderName: profile.name,
         createdAt: serverTimestamp(),
         timestamp: Date.now(),
+        status: 'delivered',
+        delivered: true,
+        read: false,
+        replyTo: nextMessage.replyTo,
       })
+      markMessageDelivered(nextMessage.clientId)
       return
     }
 
@@ -1072,47 +1143,71 @@ function App() {
             const isMine = message.senderId === profile.name
             const isSystem = message.senderId === 'system'
             return (
-              <article key={message.id} className={`message-bubble ${isSystem ? 'system' : isMine ? 'me' : 'her'}`}>
-                {!isSystem ? <div className="message-meta">{message.senderName}</div> : null}
-                <div>
-                  {message.text}
-                  {message.attachment ? (
-                    message.messageType === 'image' ? (
-                      <div className="attachment-preview">
-                        <img
-                          className="message-image"
-                          src={message.attachment.data}
-                          alt={message.attachment.name}
-                        />
-                        <button
-                          className="photo-view-btn"
-                          type="button"
-                          onClick={() => openLightboxImage(message.attachment.data, message.attachment.name)}
-                        >
-                          View photo
-                        </button>
-                      </div>
-                    ) : message.messageType === 'audio' ? (
-                      <audio controls playsInline preload="metadata" src={message.attachment.data} />
-                    ) : message.messageType === 'video' ? (
-                      <video className="message-video" controls src={message.attachment.data} />
-                    ) : (
-                      <a className="attachment-link" href={message.attachment.data} download={message.attachment.name}>{message.attachment.name}</a>
-                    )
-                  ) : null}
-                  <div className="status-row">
-                    <div className="message-timestamp">
-                      {message.timestamp ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                    </div>
-                    {isMine ? (
-                      <div
-                        className={`message-status ${message.read ? 'read' : 'sent'}`}
-                        aria-label={message.read ? 'Seen by partner' : 'Sent'}
-                        title={message.read ? 'Seen by partner' : 'Sent'}
-                      >
-                        {message.read ? '✓✓' : '✓'}
+              <article
+                key={message.id}
+                className={`message-row ${isMine ? 'mine' : 'their'}`}
+                onTouchStart={(event) => {
+                  if (event.touches?.[0]) {
+                    event.currentTarget.dataset.touchStartX = String(event.touches[0].clientX)
+                  }
+                }}
+                onTouchEnd={(event) => {
+                  const startX = Number(event.currentTarget.dataset.touchStartX || '0')
+                  const endX = event.changedTouches?.[0]?.clientX ?? 0
+                  if (endX - startX > 90) {
+                    beginReplyToMessage(message)
+                  }
+                  delete event.currentTarget.dataset.touchStartX
+                }}
+              >
+                <div className={`message-bubble ${isSystem ? 'system' : isMine ? 'me' : 'her'}`}>
+                  {!isSystem ? <div className="message-meta">{message.senderName}</div> : null}
+                  <div>
+                    {message.replyTo ? (
+                      <div className="reply-preview-chip">
+                        <span>Replying to {message.replyTo.senderName || 'message'}</span>
+                        <strong>{message.replyTo.text || (message.replyTo.messageType === 'image' ? 'Photo' : message.replyTo.messageType === 'audio' ? 'Voice message' : 'Message')}</strong>
                       </div>
                     ) : null}
+                    {message.text ? <p>{message.text}</p> : null}
+                    {message.attachment ? (
+                      message.messageType === 'image' ? (
+                        <div className="attachment-preview">
+                          <img
+                            className="message-image"
+                            src={message.attachment.data}
+                            alt={message.attachment.name}
+                          />
+                          <button
+                            className="photo-view-btn"
+                            type="button"
+                            onClick={() => openLightboxImage(message.attachment.data, message.attachment.name)}
+                          >
+                            View photo
+                          </button>
+                        </div>
+                      ) : message.messageType === 'audio' ? (
+                        <audio controls playsInline preload="metadata" src={message.attachment.data} />
+                      ) : message.messageType === 'video' ? (
+                        <video className="message-video" controls src={message.attachment.data} />
+                      ) : (
+                        <a className="attachment-link" href={message.attachment.data} download={message.attachment.name}>{message.attachment.name}</a>
+                      )
+                    ) : null}
+                    <div className="status-row">
+                      <div className="message-timestamp">
+                        {message.timestamp ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                      </div>
+                      {isMine ? (
+                        <div
+                          className={`message-status ${getMessageStatus(message)}`}
+                          aria-label={getMessageStatus(message) === 'seen' ? 'Seen by partner' : getMessageStatus(message) === 'delivered' ? 'Delivered' : 'Sent'}
+                          title={getMessageStatus(message) === 'seen' ? 'Seen by partner' : getMessageStatus(message) === 'delivered' ? 'Delivered' : 'Sent'}
+                        >
+                          {getMessageStatus(message) === 'seen' || getMessageStatus(message) === 'delivered' ? '✓✓' : '✓'}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               </article>
@@ -1130,10 +1225,22 @@ function App() {
             <div className="lightbox-content" onClick={(event) => event.stopPropagation()}>
               <button className="lightbox-close" type="button" onClick={closeLightboxImage} aria-label="Close image view">✕</button>
               <img src={lightboxImage.src} alt={lightboxImage.alt} />
-              <a className="lightbox-download" href={lightboxImage.src} download={lightboxImage.alt || 'photo'}>
-                Save photo
-              </a>
+              <div className="lightbox-actions">
+                <a className="lightbox-download" href={lightboxImage.src} download={lightboxImage.alt || 'photo'}>
+                  Save photo
+                </a>
+              </div>
             </div>
+          </div>
+        ) : null}
+
+        {replyToMessage ? (
+          <div className="reply-bar">
+            <div>
+              <span>Replying to {replyToMessage.senderName || 'message'}</span>
+              <strong>{replyToMessage.text || (replyToMessage.messageType === 'image' ? 'Photo' : replyToMessage.messageType === 'audio' ? 'Voice message' : 'Message')}</strong>
+            </div>
+            <button className="clear-btn" type="button" onClick={() => setReplyToMessage(null)}>Cancel</button>
           </div>
         ) : null}
 
