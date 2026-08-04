@@ -10,38 +10,55 @@ function AuthGate({ children }) {
   useEffect(() => {
     let cancelled = false
     let unsubscribeAuth = null
+    let fallbackTimer = null
+
+    const finishFallback = () => {
+      if (!cancelled) {
+        setUser({ uid: 'demo-user' })
+        setLoading(false)
+      }
+    }
 
     const initializeAuth = async () => {
       if (!firebaseReady) {
-        if (!cancelled) {
-          setUser({ uid: 'demo-user' })
-          setLoading(false)
-        }
+        finishFallback()
         return
       }
 
-      const { auth } = await loadFirebaseServices()
-      if (!auth || cancelled) {
-        return
-      }
-
-      const { onAuthStateChanged, signInAnonymously } = await import('firebase/auth')
-      unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
-        if (cancelled) {
+      try {
+        const { auth } = await loadFirebaseServices()
+        if (!auth || cancelled) {
+          finishFallback()
           return
         }
 
-        setUser(currentUser)
-        setLoading(false)
-      })
+        fallbackTimer = window.setTimeout(() => {
+          finishFallback()
+        }, 2500)
 
-      if (!user) {
-        signInAnonymously(auth).catch(() => {
-          if (!cancelled) {
-            setUser({ uid: 'demo-user' })
-            setLoading(false)
+        const { onAuthStateChanged, signInAnonymously } = await import('firebase/auth')
+        unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+          if (cancelled) {
+            return
           }
+
+          if (fallbackTimer) {
+            window.clearTimeout(fallbackTimer)
+            fallbackTimer = null
+          }
+
+          if (currentUser) {
+            setUser(currentUser)
+            setLoading(false)
+            return
+          }
+
+          signInAnonymously(auth).catch(() => {
+            finishFallback()
+          })
         })
+      } catch {
+        finishFallback()
       }
     }
 
@@ -50,6 +67,9 @@ function AuthGate({ children }) {
     return () => {
       cancelled = true
       unsubscribeAuth?.()
+      if (fallbackTimer) {
+        window.clearTimeout(fallbackTimer)
+      }
     }
   }, [])
 
