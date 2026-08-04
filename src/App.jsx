@@ -170,7 +170,7 @@ function App() {
   const [activeMessageAction, setActiveMessageAction] = useState(null)
   const [editingMessage, setEditingMessage] = useState(null)
   const [editMessageDraft, setEditMessageDraft] = useState('')
-  const [partnerPresence, setPartnerPresence] = useState({ online: false, lastActive: Date.now() })
+  const [partnerPresence, setPartnerPresence] = useState({ online: false, lastActive: 0 })
   const [presenceClock, setPresenceClock] = useState(Date.now())
   const [peerTyping, setPeerTyping] = useState(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
@@ -249,15 +249,15 @@ function App() {
   const normalizedRoomId = (profile.roomId || 'couple-room').trim().toLowerCase().replace(/\s+/g, '-') || 'couple-room'
 
   const getPresenceSnapshotForPartner = (snapshot = {}) => {
-    const remotePresenceEntries = Object.entries(snapshot || {}).filter(([senderId]) => senderId !== profile.name)
+    const remotePresenceEntries = Object.entries(snapshot || {}).filter(([senderId]) => senderId && senderId !== profile.name)
     if (!remotePresenceEntries.length) {
-      return { online: false, lastActive: Date.now() }
+      return { online: false, lastActive: 0 }
     }
 
     const [, remotePresence] = remotePresenceEntries[0]
     return {
       online: Boolean(remotePresence?.online),
-      lastActive: Number(remotePresence?.lastActive || Date.now()),
+      lastActive: Number(remotePresence?.lastActive || 0),
     }
   }
 
@@ -281,11 +281,15 @@ function App() {
       return 'typing...'
     }
 
+    if (!nextPresence?.lastActive) {
+      return 'offline'
+    }
+
     if (nextPresence?.online) {
       return 'online'
     }
 
-    const difference = presenceClock - Number(nextPresence?.lastActive || Date.now())
+    const difference = presenceClock - Number(nextPresence?.lastActive || 0)
     if (difference < 60000) {
       return 'last active just now'
     }
@@ -295,7 +299,7 @@ function App() {
       return `last active ${minutes}m ago`
     }
 
-    return `last active ${new Date(Number(nextPresence?.lastActive || Date.now())).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    return `last active ${new Date(Number(nextPresence?.lastActive || 0)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
   }
 
   const toggleSettings = () => setSettingsOpen((current) => !current)
@@ -575,6 +579,7 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           roomId: normalizedRoomId,
+          senderId: profile.name,
           deliveredMessageIds: receiptTargets,
           read: false,
           delivered: true,
@@ -639,6 +644,7 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           roomId: normalizedRoomId,
+          senderId: profile.name,
           readMessageIds: receiptTargets,
           read: true,
           delivered: true,
