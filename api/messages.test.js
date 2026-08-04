@@ -12,8 +12,8 @@ test('marks matching message ids as read without changing unrelated messages', (
   const result = applyReadReceipts(messages, ['msg-1', 'msg-2'], true)
 
   assert.deepEqual(result, [
-    { id: 'msg-1', text: 'Hello', read: true },
-    { id: 'msg-2', text: 'World', read: true },
+    { id: 'msg-1', text: 'Hello', read: true, delivered: true, status: 'seen' },
+    { id: 'msg-2', text: 'World', read: true, delivered: true, status: 'seen' },
     { id: 'msg-3', text: 'Again', read: true },
   ])
 })

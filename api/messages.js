@@ -19,11 +19,20 @@ function saveRoomMessages(roomId, messages) {
 
 export function applyReadReceipts(messages = [], messageIds = [], read = true) {
   return messages.map((message) => {
-    if (!Array.isArray(messageIds) || !messageIds.includes(message?.id)) {
+    if (!Array.isArray(messageIds)) {
       return message
     }
 
-    return { ...message, read: Boolean(read) }
+    const matchesReceipt = messageIds.includes(message?.id)
+      || messageIds.includes(message?.clientId)
+      || messageIds.includes(message?.localId)
+      || messageIds.includes(message?.tempId)
+
+    if (!matchesReceipt) {
+      return message
+    }
+
+    return { ...message, read: Boolean(read), delivered: Boolean(read || message?.delivered), status: read ? 'seen' : message?.status || 'sent' }
   })
 }
 

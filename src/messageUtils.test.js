@@ -47,6 +47,19 @@ test('marks matching message ids as read without mutating unrelated messages', (
   ])
 })
 
+test('matches receipts by clientId when ids are not yet assigned', () => {
+  const messages = [
+    { id: 'local-1', clientId: 'client-1', text: 'Hello', read: false },
+    { id: 'local-2', clientId: 'client-2', text: 'World', read: false },
+  ]
+
+  const result = applyReadReceipts(messages, ['client-1'])
+
+  assert.equal(result[0].read, true)
+  assert.equal(result[0].status, 'seen')
+  assert.equal(result[1].read, false)
+})
+
 test('keeps attachment data in storage while preserving message metadata', () => {
   const storage = {
     values: new Map(),

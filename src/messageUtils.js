@@ -71,7 +71,12 @@ export function applyReadReceipts(messages = [], messageIds = []) {
 
   const nextMessageIds = new Set(messageIds)
   return messages.map((message) => {
-    if (!nextMessageIds.has(message?.id)) {
+    const matchesReceipt = nextMessageIds.has(message?.id)
+      || nextMessageIds.has(message?.clientId)
+      || nextMessageIds.has(message?.localId)
+      || nextMessageIds.has(message?.tempId)
+
+    if (!matchesReceipt) {
       return message
     }
 
