@@ -1565,7 +1565,13 @@ function App() {
       return
     }
 
+    const syncViewportHeight = () => {
+      const viewportHeight = window.visualViewport?.height || window.innerHeight || 1
+      document.documentElement.style.setProperty('--app-vh', `${viewportHeight * 0.01}px`)
+    }
+
     const handleViewportResize = () => {
+      syncViewportHeight()
       if (messageListRef.current) {
         window.setTimeout(() => {
           messageListRef.current?.scrollTo({
@@ -1576,8 +1582,11 @@ function App() {
       }
     }
 
+    syncViewportHeight()
+    window.addEventListener('resize', handleViewportResize)
     window.visualViewport?.addEventListener('resize', handleViewportResize)
     return () => {
+      window.removeEventListener('resize', handleViewportResize)
       window.visualViewport?.removeEventListener('resize', handleViewportResize)
     }
   }, [])
