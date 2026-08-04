@@ -868,6 +868,10 @@ function App() {
       return
     }
 
+    if (lastMessage.senderId !== profile.name && document.visibilityState === 'visible') {
+      void markIncomingMessagesRead(messages)
+    }
+
     if (lastMessage.senderId !== profile.name && document.visibilityState !== 'visible') {
       const messageText = lastMessage.text || 'New message'
       const notificationBody = lastMessage.messageType === 'audio'
@@ -990,8 +994,10 @@ function App() {
     if (db && firebaseReady) {
       await addDoc(collection(db, 'rooms', normalizedRoomId, 'messages'), {
         text: trimmedMessage,
+        clientId: nextMessage.clientId,
         senderId: profile.name,
         senderName: profile.name,
+        messageType: 'text',
         createdAt: serverTimestamp(),
         timestamp: Date.now(),
         status: 'sent',
