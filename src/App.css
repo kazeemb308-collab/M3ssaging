@@ -656,25 +656,28 @@ html, body, #root {
   justify-content: center;
   border-radius: 999px;
   color: #111827;
-  font-size: 0.75rem;
-  font-weight: 700;
+  font-size: 0.78rem;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: 0.02em;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
 .message-status.sent {
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.88);
   color: #6b7280;
 }
 
 .message-status.delivered {
   background: rgba(255, 255, 255, 0.9);
   color: #6b7280;
+  box-shadow: inset 0 0 0 1px rgba(107, 114, 128, 0.18);
 }
 
 .message-status.seen {
-  background: rgba(16, 185, 129, 0.12);
-  color: #047857;
-  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.16);
+  background: rgba(37, 99, 235, 0.14);
+  color: #1d4ed8;
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.34);
 }
 
 .typing-indicator {
@@ -718,9 +721,10 @@ html, body, #root {
 }
 
 .composer-input-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 44px 44px 44px minmax(0, 1fr) 48px;
   gap: 8px;
-  align-items: flex-end;
+  align-items: center;
   width: 100%;
   min-width: 0;
 }
@@ -763,6 +767,7 @@ html, body, #root {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
   padding: 0;
   min-height: 44px;
+  justify-self: center;
 }
 
 .composer-send-btn {
@@ -779,10 +784,11 @@ html, body, #root {
   box-shadow: 0 4px 12px rgba(18, 140, 126, 0.18);
   font-size: 1.05rem;
   flex-shrink: 0;
+  justify-self: center;
 }
 
 .composer textarea {
-    flex: 1 1 auto;
+    width: 100%;
     min-width: 0;
     border: 1px solid #d1d5db;
     border-radius: 28px;
@@ -796,7 +802,7 @@ html, body, #root {
     color: #111827;
     max-height: 120px;
     overflow: auto;
-    min-height: 52px;
+    min-height: 48px;
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
   }
@@ -913,6 +919,30 @@ input, textarea, button {
 .attachment-label {
   font-size: 0.8rem;
   color: #4b5563;
+}
+
+@media (max-width: 420px) {
+  .composer {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .composer-input-row {
+    grid-template-columns: 40px 40px 40px minmax(0, 1fr) 44px;
+    gap: 6px;
+  }
+
+  .composer-action,
+  .composer-send-btn {
+    width: 40px;
+    height: 40px;
+    min-height: 40px;
+  }
+
+  .composer-send-btn {
+    width: 44px;
+    height: 44px;
+  }
 }
 
 @media (max-width: 900px) {

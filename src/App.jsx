@@ -218,8 +218,20 @@ function App() {
     })
   }
 
+  const getReceiptTargetIds = (message) => [message?.id, message?.clientId, message?.localId, message?.tempId].filter(Boolean)
+
+  const getReceiptTargetList = (incomingMessages = []) => Array.from(new Set(incomingMessages.flatMap((message) => getReceiptTargetIds(message))))
+
   const sendReadReceipt = async (messageIds) => {
-    if (!messageIds.length || !profile.name || typeof window === 'undefined') {
+    const receiptTargets = Array.from(new Set((messageIds || []).flatMap((messageId) => {
+      if (typeof messageId === 'string') {
+        return [messageId]
+      }
+
+      return getReceiptTargetIds(messageId)
+    })))
+
+    if (!receiptTargets.length || !profile.name || typeof window === 'undefined') {
       return
     }
 
@@ -228,7 +240,7 @@ function App() {
         type: 'read-receipt',
         roomId: normalizedRoomId,
         senderId: profile.name,
-        messageIds,
+        messageIds: receiptTargets,
       })
     }
 
@@ -238,8 +250,10 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           roomId: normalizedRoomId,
-          readMessageIds: messageIds,
+          readMessageIds: receiptTargets,
           read: true,
+          delivered: true,
+          status: 'seen',
         }),
       })
     } catch {
@@ -248,7 +262,7 @@ function App() {
 
     if (db && firebaseReady) {
       try {
-        await Promise.all(messageIds.map((messageId) => updateDoc(doc(db, 'rooms', normalizedRoomId, 'messages', messageId), { read: true })))
+        await Promise.all(receiptTargets.map((messageId) => updateDoc(doc(db, 'rooms', normalizedRoomId, 'messages', messageId), { read: true, delivered: true, status: 'seen' })))
       } catch {
         // best-effort only
       }
@@ -265,9 +279,10 @@ function App() {
       return
     }
 
-    const nextMessages = applyReadReceipts(incomingMessages, unreadIncoming.map((message) => message.id))
+    const receiptTargets = getReceiptTargetList(unreadIncoming)
+    const nextMessages = applyReadReceipts(incomingMessages, receiptTargets)
     saveMessages(nextMessages, normalizedRoomId)
-    await sendReadReceipt(unreadIncoming.map((message) => message.id))
+    await sendReadReceipt(receiptTargets)
   }
 
   const sendTypingUpdate = (isTyping) => {
@@ -547,9 +562,9 @@ function App() {
           messageType: nextMessage.messageType,
           attachment: nextMessage.attachment,
           timestamp: nextMessage.timestamp,
-          status: nextMessage.status,
-          delivered: nextMessage.delivered,
-          read: nextMessage.read,
+          status: 'sent',
+          delivered: false,
+          read: false,
           replyTo: nextMessage.replyTo,
         }),
       })
@@ -713,7 +728,7 @@ function App() {
       if (profile.name) {
         const unreadMessages = messages.filter((message) => message.senderId !== profile.name && !message.read)
         if (unreadMessages.length) {
-          await sendReadReceipt(unreadMessages.map((message) => message.id))
+          await sendReadReceipt(getReceiptTargetList(unreadMessages))
         }
       }
     }
@@ -979,8 +994,8 @@ function App() {
         senderName: profile.name,
         createdAt: serverTimestamp(),
         timestamp: Date.now(),
-        status: 'delivered',
-        delivered: true,
+        status: 'sent',
+        delivered: false,
         read: false,
         replyTo: nextMessage.replyTo,
       })
@@ -999,8 +1014,8 @@ function App() {
           senderName: profile.name,
           messageType: 'text',
           timestamp: nextMessage.timestamp,
-          status: 'delivered',
-          delivered: true,
+          status: 'sent',
+          delivered: false,
           read: false,
           replyTo: nextMessage.replyTo,
         }),
@@ -1176,6 +1191,7 @@ function App() {
           {messages.map((message) => {
             const isMine = message.senderId === profile.name
             const isSystem = message.senderId === 'system'
+            const messageStatus = getMessageStatus(message)
             return (
               <article
                 key={message.id}
@@ -1234,11 +1250,11 @@ function App() {
                       </div>
                       {isMine ? (
                         <div
-                          className={`message-status ${getMessageStatus(message)}`}
-                          aria-label={getMessageStatus(message) === 'seen' ? 'Seen by partner' : getMessageStatus(message) === 'delivered' ? 'Delivered' : 'Sent'}
-                          title={getMessageStatus(message) === 'seen' ? 'Seen by partner' : getMessageStatus(message) === 'delivered' ? 'Delivered' : 'Sent'}
+                          className={`message-status ${messageStatus}`}
+                          aria-label={messageStatus === 'seen' ? 'Seen by partner' : messageStatus === 'delivered' ? 'Delivered' : 'Sent'}
+                          title={messageStatus === 'seen' ? 'Seen by partner' : messageStatus === 'delivered' ? 'Delivered' : 'Sent'}
                         >
-                          {getMessageStatus(message) === 'seen' || getMessageStatus(message) === 'delivered' ? '✓✓' : '✓'}
+                          {messageStatus === 'seen' || messageStatus === 'delivered' ? '✓✓' : '✓'}
                         </div>
                       ) : null}
                     </div>
