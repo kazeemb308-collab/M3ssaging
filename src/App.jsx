@@ -1358,14 +1358,23 @@ function App() {
     void loadMessages()
     setChannelReady(true)
 
+    let channel = null
+    let presenceHeartbeat = null
+    let presencePoller = null
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      channel = new window.BroadcastChannel(`m3ssaging-${normalizedRoomId}`)
+      channelRef.current = channel
+    }
+
     if (typeof window === 'undefined' || !('EventSource' in window) || (firebaseReady && firebaseServicesRef.current.db)) {
-      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-        const channel = new window.BroadcastChannel(`m3ssaging-${normalizedRoomId}`)
-        channelRef.current = channel
-      }
       return () => {
-        window.clearInterval(presenceHeartbeat)
-        window.clearInterval(presencePoller)
+        if (presenceHeartbeat) {
+          window.clearInterval(presenceHeartbeat)
+        }
+        if (presencePoller) {
+          window.clearInterval(presencePoller)
+        }
         channelRef.current?.close()
         channelRef.current = null
       }
@@ -1406,54 +1415,52 @@ function App() {
       }
     }
 
-    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-      const channel = new window.BroadcastChannel(`m3ssaging-${normalizedRoomId}`)
-      channelRef.current = channel
-    }
     sendPresenceUpdate(true)
 
-    const presenceHeartbeat = window.setInterval(() => {
+    presenceHeartbeat = window.setInterval(() => {
       void sendPresenceUpdate(true)
     }, 15000)
 
-    const presencePoller = window.setInterval(() => {
+    presencePoller = window.setInterval(() => {
       void syncPresenceFromApi(normalizedRoomId)
     }, 5000)
 
     void syncPresenceFromApi(normalizedRoomId)
 
-    channel.onmessage = (event) => {
-      if (event.data.roomId !== normalizedRoomId) {
-        return
-      }
-
-      if (event.data.type === 'message-sync') {
-        setMessages((currentMessages) => mergeMessages(currentMessages, event.data.messages))
-        return
-      }
-
-      if (event.data.type === 'delivered-receipt' && event.data.senderId !== profile.name) {
-        setMessages((currentMessages) => applyDeliveredReceipts(currentMessages, event.data.messageIds || []))
-        return
-      }
-
-      if (event.data.type === 'read-receipt' && event.data.senderId !== profile.name) {
-        setMessages((currentMessages) => applyReadReceipts(currentMessages, event.data.messageIds || []))
-        return
-      }
-
-      if (event.data.type === 'typing' && event.data.senderId !== profile.name) {
-        setPeerTyping(event.data.isTyping)
-        if (event.data.isTyping) {
-          scheduleTypingTimeout()
+    if (channel) {
+      channel.onmessage = (event) => {
+        if (event.data.roomId !== normalizedRoomId) {
+          return
         }
-      }
 
-      if (event.data.type === 'presence' && event.data.senderId !== profile.name) {
-        setPartnerPresence({
-          online: Boolean(event.data.online),
-          lastActive: Number(event.data.lastActive || Date.now()),
-        })
+        if (event.data.type === 'message-sync') {
+          setMessages((currentMessages) => mergeMessages(currentMessages, event.data.messages))
+          return
+        }
+
+        if (event.data.type === 'delivered-receipt' && event.data.senderId !== profile.name) {
+          setMessages((currentMessages) => applyDeliveredReceipts(currentMessages, event.data.messageIds || []))
+          return
+        }
+
+        if (event.data.type === 'read-receipt' && event.data.senderId !== profile.name) {
+          setMessages((currentMessages) => applyReadReceipts(currentMessages, event.data.messageIds || []))
+          return
+        }
+
+        if (event.data.type === 'typing' && event.data.senderId !== profile.name) {
+          setPeerTyping(event.data.isTyping)
+          if (event.data.isTyping) {
+            scheduleTypingTimeout()
+          }
+        }
+
+        if (event.data.type === 'presence' && event.data.senderId !== profile.name) {
+          setPartnerPresence({
+            online: Boolean(event.data.online),
+            lastActive: Number(event.data.lastActive || Date.now()),
+          })
+        }
       }
     }
 
@@ -1484,8 +1491,12 @@ function App() {
       unsubscribeFirebase?.()
       eventSourceRef.current?.close()
       eventSourceRef.current = null
-      window.clearInterval(presenceHeartbeat)
-      window.clearInterval(presencePoller)
+      if (presenceHeartbeat) {
+        window.clearInterval(presenceHeartbeat)
+      }
+      if (presencePoller) {
+        window.clearInterval(presencePoller)
+      }
       window.removeEventListener('pagehide', handlePageHide)
       window.removeEventListener('beforeunload', handleBeforeUnload)
       window.removeEventListener('offline', handleOfflineStatus)
