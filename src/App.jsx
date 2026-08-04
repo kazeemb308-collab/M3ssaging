@@ -82,6 +82,7 @@ function App() {
   const [editingMessage, setEditingMessage] = useState(null)
   const [editMessageDraft, setEditMessageDraft] = useState('')
   const [partnerPresence, setPartnerPresence] = useState({ online: false, lastActive: Date.now() })
+  const [presenceClock, setPresenceClock] = useState(Date.now())
   const [peerTyping, setPeerTyping] = useState(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState(null)
@@ -125,6 +126,14 @@ function App() {
       })
     }
   }, [isSignedUp])
+
+  useEffect(() => {
+    const clockInterval = window.setInterval(() => {
+      setPresenceClock(Date.now())
+    }, 30000)
+
+    return () => window.clearInterval(clockInterval)
+  }, [])
 
   const scrollToBottom = () => {
     if (!messageListRef.current) {
@@ -185,7 +194,7 @@ function App() {
       return 'online'
     }
 
-    const difference = Date.now() - Number(nextPresence?.lastActive || Date.now())
+    const difference = presenceClock - Number(nextPresence?.lastActive || Date.now())
     if (difference < 60000) {
       return 'last active just now'
     }
@@ -1109,15 +1118,25 @@ function App() {
     }
 
     const handlePageHide = () => {
-      sendPresenceUpdate(false)
+      void sendPresenceUpdate(false)
     }
 
     const handleBeforeUnload = () => {
-      sendPresenceUpdate(false)
+      void sendPresenceUpdate(false)
+    }
+
+    const handleOfflineStatus = () => {
+      void sendPresenceUpdate(false)
+    }
+
+    const handleOnlineStatus = () => {
+      void sendPresenceUpdate(true)
     }
 
     window.addEventListener('pagehide', handlePageHide)
     window.addEventListener('beforeunload', handleBeforeUnload)
+    window.addEventListener('offline', handleOfflineStatus)
+    window.addEventListener('online', handleOnlineStatus)
 
     return () => {
       unsubscribeFirebase?.()
@@ -1126,6 +1145,8 @@ function App() {
       window.clearInterval(presencePoller)
       window.removeEventListener('pagehide', handlePageHide)
       window.removeEventListener('beforeunload', handleBeforeUnload)
+      window.removeEventListener('offline', handleOfflineStatus)
+      window.removeEventListener('online', handleOnlineStatus)
       channel.close()
     }
   }, [profile.name, normalizedRoomId])
