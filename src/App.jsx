@@ -1108,6 +1108,7 @@ function App() {
       if (response.ok) {
         const remoteMessages = await response.json()
         saveMessages(remoteMessages, normalizedRoomId)
+        markMessageAsSent(nextMessage.clientId)
       } else {
         setMessages((currentMessages) => currentMessages.map((message) => {
           if (message.clientId !== nextMessage.clientId && message.id !== nextMessage.id) {
@@ -1249,6 +1250,7 @@ function App() {
       if (response.ok) {
         const remoteMessages = await response.json()
         saveMessages(remoteMessages, normalizedRoomId)
+        markMessageAsSent(nextMessage.clientId)
       } else {
         setMessages((currentMessages) => currentMessages.map((message) => {
           if (message.clientId !== nextMessage.clientId && message.id !== nextMessage.id) {
@@ -1835,6 +1837,7 @@ function App() {
       }, { retries: 2, delayMs: 250 })
 
       saveMessages(remoteMessages, normalizedRoomId)
+      markMessageAsSent(nextMessage.clientId)
     } catch {
       setMessages((currentMessages) => currentMessages.map((message) => {
         if (message.clientId !== nextMessage.clientId && message.id !== nextMessage.id) {
