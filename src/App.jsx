@@ -92,7 +92,6 @@ function App() {
   const prevMessageRef = useRef(null)
   const initialMessagesLoadedRef = useRef(false)
   const audioChunksRef = useRef([])
-  const statusTimerRefs = useRef(new Map())
   const galleryInputRef = useRef(null)
   const cameraInputRef = useRef(null)
   const messageInputRef = useRef(null)
@@ -217,39 +216,6 @@ function App() {
 
       return nextMessages
     })
-  }
-
-  const clearMessageStatusTimers = (messageKey) => {
-    const timers = statusTimerRefs.current.get(messageKey)
-    if (!timers) {
-      return
-    }
-
-    timers.forEach((timerId) => {
-      if (typeof window !== 'undefined') {
-        window.clearTimeout(timerId)
-      }
-    })
-    statusTimerRefs.current.delete(messageKey)
-  }
-
-  const scheduleMessageStatusProgression = (messageKey) => {
-    if (!messageKey || typeof window === 'undefined') {
-      return
-    }
-
-    clearMessageStatusTimers(messageKey)
-
-    const timers = [
-      window.setTimeout(() => {
-        updateMessageStatus(messageKey, 'delivered')
-      }, 900),
-      window.setTimeout(() => {
-        updateMessageStatus(messageKey, 'seen')
-      }, 1800),
-    ]
-
-    statusTimerRefs.current.set(messageKey, timers)
   }
 
   const sendReadReceipt = async (messageIds) => {
@@ -555,7 +521,6 @@ function App() {
 
     const nextMessages = [...messages, nextMessage]
     saveMessages(nextMessages, normalizedRoomId)
-    scheduleMessageStatusProgression(nextMessage.clientId)
     setPendingAttachment(null)
     setReplyToMessage(null)
     setShowScrollToBottom(false)
@@ -637,7 +602,6 @@ function App() {
 
     const nextMessages = [...messages, nextMessage]
     saveMessages(nextMessages, normalizedRoomId)
-    scheduleMessageStatusProgression(nextMessage.clientId)
     setShowScrollToBottom(false)
     scrollToBottom()
     setRecordedAudioBlob(null)
@@ -794,8 +758,6 @@ function App() {
     return () => {
       unsubscribeFirebase?.()
       window.clearInterval(intervalId)
-      statusTimerRefs.current.forEach((timers) => timers.forEach((timerId) => window.clearTimeout(timerId)))
-      statusTimerRefs.current.clear()
       channel.close()
     }
   }, [profile.name, normalizedRoomId])
@@ -995,7 +957,6 @@ function App() {
 
     const nextMessages = [...messages, nextMessage]
     saveMessages(nextMessages, normalizedRoomId)
-    scheduleMessageStatusProgression(nextMessage.clientId)
     setDraft('')
     setReplyToMessage(null)
     sendTypingUpdate(false)
@@ -1372,62 +1333,64 @@ function App() {
               }
             }}
           />
-          <button className="composer-action" type="button" onClick={() => galleryInputRef.current?.click()}>
-            📎
-          </button>
-          <button className="composer-action" type="button" onClick={() => cameraInputRef.current?.click()}>
-            📷
-          </button>
-          <button
-            className="composer-action"
-            type="button"
-            onClick={startRecording}
-            aria-label={isRecording ? 'Stop recording' : 'Start recording'}
-          >
-            {isRecording ? '⬇️ Stop' : '🎤'}
-          </button>
+          <div className="composer-input-row">
+            <button className="composer-action" type="button" onClick={() => galleryInputRef.current?.click()} aria-label="Attach file">
+              📎
+            </button>
+            <button className="composer-action" type="button" onClick={() => cameraInputRef.current?.click()} aria-label="Take photo">
+              📷
+            </button>
+            <button
+              className="composer-action"
+              type="button"
+              onClick={startRecording}
+              aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+            >
+              {isRecording ? '⬇️' : '🎤'}
+            </button>
             <textarea
-            ref={messageInputRef}
-            rows={1}
-            value={draft}
-            onChange={(event) => {
-              setDraft(event.target.value)
-              syncMessageInputHeight()
-              sendTypingUpdate(true)
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== 'Enter') {
-                return
-              }
+              ref={messageInputRef}
+              rows={1}
+              value={draft}
+              onChange={(event) => {
+                setDraft(event.target.value)
+                syncMessageInputHeight()
+                sendTypingUpdate(true)
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') {
+                  return
+                }
 
-              if (event.shiftKey) {
-                return
-              }
+                if (event.shiftKey) {
+                  return
+                }
 
-              event.preventDefault()
-              void sendMessage(event)
-            }}
-            onFocus={() => {
-              syncMessageInputHeight()
-              window.setTimeout(() => {
-                messageListRef.current?.scrollTo({
-                  top: messageListRef.current.scrollHeight,
-                  behavior: 'smooth',
-                })
-              }, 100)
-            }}
-            onInput={(event) => {
-              syncMessageInputHeight()
-              sendTypingUpdate(true)
-            }}
-            placeholder="Type a message..."
-            aria-label="message input"
-            autoComplete="off"
-            autoCorrect="off"
-            spellCheck="false"
-            inputMode="text"
-          />
-          <button type="submit">Send</button>
+                event.preventDefault()
+                void sendMessage(event)
+              }}
+              onFocus={() => {
+                syncMessageInputHeight()
+                window.setTimeout(() => {
+                  messageListRef.current?.scrollTo({
+                    top: messageListRef.current.scrollHeight,
+                    behavior: 'smooth',
+                  })
+                }, 100)
+              }}
+              onInput={(event) => {
+                syncMessageInputHeight()
+                sendTypingUpdate(true)
+              }}
+              placeholder="Type a message..."
+              aria-label="message input"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck="false"
+              inputMode="text"
+            />
+            <button className="composer-send-btn" type="submit" aria-label="Send message">➤</button>
+          </div>
         </form>
       </main>
     </div>
