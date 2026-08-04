@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { addDoc, collection, doc, onSnapshot, orderBy, query, serverTimestamp, updateDoc } from 'firebase/firestore'
+import { addDoc, collection, doc, getDocs, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
 import { db, firebaseReady } from './firebase'
 import './App.css'
 import { applyReadReceipts, getMessageStatus, hydrateMessagesWithAttachments, mergeMessages, persistMessages } from './messageUtils'
@@ -262,7 +262,16 @@ function App() {
 
     if (db && firebaseReady) {
       try {
-        await Promise.all(receiptTargets.map((messageId) => updateDoc(doc(db, 'rooms', normalizedRoomId, 'messages', messageId), { read: true, delivered: true, status: 'seen' })))
+        const clientIdTargets = receiptTargets.filter((target) => typeof target === 'string' && target.startsWith('client-'))
+        if (clientIdTargets.length) {
+          const receiptQuery = query(collection(db, 'rooms', normalizedRoomId, 'messages'), where('clientId', 'in', clientIdTargets.slice(0, 10)))
+          const receiptSnapshot = await getDocs(receiptQuery)
+          await Promise.all(receiptSnapshot.docs.map((document) => updateDoc(doc(db, 'rooms', normalizedRoomId, 'messages', document.id), {
+            read: true,
+            delivered: true,
+            status: 'seen',
+          })))
+        }
       } catch {
         // best-effort only
       }
