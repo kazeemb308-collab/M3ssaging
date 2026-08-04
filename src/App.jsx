@@ -652,21 +652,69 @@ function App() {
     }
   }
 
+  const getNotificationPayload = (message) => {
+    if (!message) {
+      return { title: 'New message', body: 'You have a new message.' }
+    }
+
+    if (message.messageType === 'audio') {
+      return { title: message.senderName || 'New message', body: '🎤 Voice message received' }
+    }
+
+    if (message.messageType === 'image') {
+      return { title: message.senderName || 'New message', body: '📷 Photo received' }
+    }
+
+    if (message.messageType === 'video') {
+      return { title: message.senderName || 'New message', body: '🎬 Video received' }
+    }
+
+    const textPreview = String(message.text || '').trim()
+    return {
+      title: message.senderName || 'New message',
+      body: textPreview || 'You have a new message.',
+    }
+  }
+
+  const announceNetworkState = async (online = true) => {
+    if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') {
+      return
+    }
+
+    if (document.visibilityState === 'visible') {
+      return
+    }
+
+    await showNotification(online ? 'Network restored' : 'Connection lost', {
+      body: online ? 'M3ssaging is online again and can sync your messages.' : 'You are offline. Messages will retry when the connection is back.',
+      tag: online ? 'm3ssaging-network-restored' : 'm3ssaging-network-loss',
+      renotify: true,
+      requireInteraction: false,
+    })
+  }
+
   const showNotification = async (title, options = {}) => {
     if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') {
       return
     }
 
+    const notificationOptions = {
+      icon: '/favicon.ico',
+      tag: `${title}-${Date.now()}`,
+      renotify: true,
+      ...options,
+    }
+
     if ('serviceWorker' in navigator) {
       const registration = await navigator.serviceWorker.getRegistration()
       if (registration) {
-        registration.showNotification(title, { ...options })
+        registration.showNotification(title, notificationOptions)
         return
       }
     }
 
     try {
-      new Notification(title, { ...options })
+      new Notification(title, notificationOptions)
     } catch {
       // ignore notification errors
     }
@@ -1237,10 +1285,12 @@ function App() {
 
     const handleOfflineStatus = () => {
       void sendPresenceUpdate(false)
+      void announceNetworkState(false)
     }
 
     const handleOnlineStatus = () => {
       void sendPresenceUpdate(true)
+      void announceNetworkState(true)
     }
 
     window.addEventListener('pagehide', handlePageHide)
@@ -1385,17 +1435,14 @@ function App() {
       void markIncomingMessagesRead(messages)
     }
 
-    if (lastMessage.senderId !== profile.name && document.visibilityState !== 'visible') {
-      const messageText = lastMessage.text || 'New message'
-      const notificationBody = lastMessage.messageType === 'audio'
-        ? 'Voice message received'
-        : lastMessage.messageType === 'image'
-          ? 'Photo received'
-          : messageText
+    const shouldNotifyInBackground = lastMessage.senderId !== profile.name && (!document.hasFocus() || document.visibilityState !== 'visible')
+
+    if (shouldNotifyInBackground) {
+      const { title, body } = getNotificationPayload(lastMessage)
 
       playNotificationSound()
-      void showNotification(lastMessage.senderName || 'New message', {
-        body: notificationBody,
+      void showNotification(title, {
+        body,
         icon: '/favicon.ico',
       })
     }
