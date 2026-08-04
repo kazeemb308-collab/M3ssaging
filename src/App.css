@@ -521,14 +521,49 @@ html, body, #root {
   opacity: 0.8;
 }
 
+.message-row {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.message-row.mine {
+  align-items: flex-end;
+}
+
+.message-row.their {
+  align-items: flex-start;
+}
+
 .message-bubble {
-  max-width: 82%;
-  padding: 16px 18px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: fit-content;
+  max-width: min(82%, 420px);
+  min-width: 0;
+  padding: 14px 16px;
   border-radius: 20px;
   line-height: 1.55;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
   font-size: 0.95rem;
   word-break: break-word;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+}
+
+.message-bubble > div {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+}
+
+.message-bubble p {
+  margin: 0;
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .reply-preview-chip {
@@ -604,6 +639,7 @@ html, body, #root {
   justify-content: space-between;
   align-items: center;
   gap: 8px;
+  width: 100%;
 }
 
 .message-timestamp {
@@ -668,16 +704,47 @@ html, body, #root {
   bottom: 0;
   z-index: 20;
   display: flex;
+  flex-direction: column;
   gap: 8px;
   padding: 12px 12px calc(12px + max(env(safe-area-inset-bottom), 12px));
   background: rgba(240, 242, 245, 0.98);
   border-top: 1px solid #e5e7eb;
-  align-items: center;
+  align-items: stretch;
   min-height: 64px;
   flex-wrap: nowrap;
   overflow-x: hidden;
   box-shadow: 0 -6px 18px rgba(15, 23, 42, 0.06);
   backdrop-filter: blur(10px);
+}
+
+.composer-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.composer-reply-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(18, 140, 126, 0.16);
+}
+
+.composer-reply-preview span {
+  color: #128c7e;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.composer-reply-preview strong {
+  font-size: 0.84rem;
+  color: #111827;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .composer-action {

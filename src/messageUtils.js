@@ -6,6 +6,22 @@ export function sortMessages(messages = []) {
   })
 }
 
+function shouldPreserveExistingField(key, incomingValue, existingValue) {
+  if (key === 'replyTo') {
+    return incomingValue == null && existingValue != null
+  }
+
+  if (key === 'status') {
+    return incomingValue === 'sent' && (existingValue === 'delivered' || existingValue === 'seen')
+  }
+
+  if (key === 'read' || key === 'delivered') {
+    return incomingValue === false && Boolean(existingValue)
+  }
+
+  return false
+}
+
 export function mergeMessages(existingMessages = [], incomingMessages = []) {
   const nextMessages = []
   const indexByKey = new Map()
@@ -28,10 +44,16 @@ export function mergeMessages(existingMessages = [], incomingMessages = []) {
     const currentIndex = indexByKey.get(key)
 
     if (typeof currentIndex === 'number') {
-      nextMessages[currentIndex] = {
-        ...nextMessages[currentIndex],
-        ...message,
-      }
+      const existingMessage = nextMessages[currentIndex]
+      nextMessages[currentIndex] = Object.entries(message).reduce((accumulator, [field, value]) => {
+        if (shouldPreserveExistingField(field, value, existingMessage?.[field])) {
+          accumulator[field] = existingMessage[field]
+          return accumulator
+        }
+
+        accumulator[field] = value
+        return accumulator
+      }, { ...existingMessage })
       continue
     }
 

@@ -69,7 +69,7 @@ export default async function handler(req, res) {
       messageType: String(messageType || 'text'),
       attachment: attachment || null,
       timestamp: typeof timestamp === 'number' ? timestamp : Date.now(),
-      read: false,
+      read: Boolean(read),
       delivered: Boolean(delivered || status === 'delivered' || status === 'seen'),
       status: String(status || 'sent'),
       replyTo: replyTo || null,

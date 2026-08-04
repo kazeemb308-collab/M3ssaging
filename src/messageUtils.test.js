@@ -81,6 +81,46 @@ test('keeps attachment data in storage while preserving message metadata', () =>
   assert.equal(storedMessages[0].attachment?.name, 'photo.png')
 })
 
+test('preserves optimistic reply metadata and delivery status when server data is less detailed', () => {
+  const optimisticMessage = {
+    id: 'local-1',
+    clientId: 'client-1',
+    senderId: 'me',
+    senderName: 'Me',
+    text: 'Hello',
+    timestamp: 100,
+    read: false,
+    delivered: true,
+    status: 'delivered',
+    replyTo: {
+      id: 'msg-7',
+      senderName: 'Them',
+      text: 'Original message',
+      messageType: 'text',
+    },
+  }
+
+  const serverMessage = {
+    id: 'server-1',
+    clientId: 'client-1',
+    senderId: 'me',
+    senderName: 'Me',
+    text: 'Hello',
+    timestamp: 100,
+    read: false,
+    delivered: false,
+    status: 'sent',
+    replyTo: null,
+  }
+
+  const result = mergeMessages([optimisticMessage], [serverMessage])
+
+  assert.equal(result.length, 1)
+  assert.equal(result[0].replyTo?.id, 'msg-7')
+  assert.equal(result[0].status, 'delivered')
+  assert.equal(result[0].delivered, true)
+})
+
 test('derives WhatsApp-like statuses from delivery and read state', () => {
   assert.equal(getMessageStatus({ read: false, delivered: false }), 'sent')
   assert.equal(getMessageStatus({ read: false, delivered: true }), 'delivered')

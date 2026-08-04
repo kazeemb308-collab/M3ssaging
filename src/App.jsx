@@ -92,6 +92,7 @@ function App() {
   const prevMessageRef = useRef(null)
   const initialMessagesLoadedRef = useRef(false)
   const audioChunksRef = useRef([])
+  const statusTimerRefs = useRef(new Map())
   const galleryInputRef = useRef(null)
   const cameraInputRef = useRef(null)
   const messageInputRef = useRef(null)
@@ -193,6 +194,62 @@ function App() {
     if (messageInputRef.current) {
       messageInputRef.current.focus()
     }
+  }
+
+  const updateMessageStatus = (messageKey, nextStatus) => {
+    setMessages((currentMessages) => {
+      const nextMessages = currentMessages.map((message) => {
+        if (message.clientId !== messageKey && message.id !== messageKey) {
+          return message
+        }
+
+        return {
+          ...message,
+          read: nextStatus === 'seen',
+          delivered: nextStatus === 'delivered' || nextStatus === 'seen',
+          status: nextStatus,
+        }
+      })
+
+      if (typeof window !== 'undefined') {
+        persistMessages(normalizedRoomId, nextMessages, window.localStorage)
+      }
+
+      return nextMessages
+    })
+  }
+
+  const clearMessageStatusTimers = (messageKey) => {
+    const timers = statusTimerRefs.current.get(messageKey)
+    if (!timers) {
+      return
+    }
+
+    timers.forEach((timerId) => {
+      if (typeof window !== 'undefined') {
+        window.clearTimeout(timerId)
+      }
+    })
+    statusTimerRefs.current.delete(messageKey)
+  }
+
+  const scheduleMessageStatusProgression = (messageKey) => {
+    if (!messageKey || typeof window === 'undefined') {
+      return
+    }
+
+    clearMessageStatusTimers(messageKey)
+
+    const timers = [
+      window.setTimeout(() => {
+        updateMessageStatus(messageKey, 'delivered')
+      }, 900),
+      window.setTimeout(() => {
+        updateMessageStatus(messageKey, 'seen')
+      }, 1800),
+    ]
+
+    statusTimerRefs.current.set(messageKey, timers)
   }
 
   const sendReadReceipt = async (messageIds) => {
@@ -498,6 +555,7 @@ function App() {
 
     const nextMessages = [...messages, nextMessage]
     saveMessages(nextMessages, normalizedRoomId)
+    scheduleMessageStatusProgression(nextMessage.clientId)
     setPendingAttachment(null)
     setReplyToMessage(null)
     setShowScrollToBottom(false)
@@ -524,6 +582,10 @@ function App() {
           messageType: nextMessage.messageType,
           attachment: nextMessage.attachment,
           timestamp: nextMessage.timestamp,
+          status: nextMessage.status,
+          delivered: nextMessage.delivered,
+          read: nextMessage.read,
+          replyTo: nextMessage.replyTo,
         }),
       })
 
@@ -575,6 +637,7 @@ function App() {
 
     const nextMessages = [...messages, nextMessage]
     saveMessages(nextMessages, normalizedRoomId)
+    scheduleMessageStatusProgression(nextMessage.clientId)
     setShowScrollToBottom(false)
     scrollToBottom()
     setRecordedAudioBlob(null)
@@ -603,6 +666,10 @@ function App() {
           messageType: nextMessage.messageType,
           attachment,
           timestamp: nextMessage.timestamp,
+          status: nextMessage.status,
+          delivered: nextMessage.delivered,
+          read: nextMessage.read,
+          replyTo: nextMessage.replyTo,
         }),
       })
 
@@ -727,6 +794,8 @@ function App() {
     return () => {
       unsubscribeFirebase?.()
       window.clearInterval(intervalId)
+      statusTimerRefs.current.forEach((timers) => timers.forEach((timerId) => window.clearTimeout(timerId)))
+      statusTimerRefs.current.clear()
       channel.close()
     }
   }, [profile.name, normalizedRoomId])
@@ -926,6 +995,7 @@ function App() {
 
     const nextMessages = [...messages, nextMessage]
     saveMessages(nextMessages, normalizedRoomId)
+    scheduleMessageStatusProgression(nextMessage.clientId)
     setDraft('')
     setReplyToMessage(null)
     sendTypingUpdate(false)
@@ -953,7 +1023,6 @@ function App() {
         read: false,
         replyTo: nextMessage.replyTo,
       })
-      markMessageDelivered(nextMessage.clientId)
       return
     }
 
@@ -969,6 +1038,10 @@ function App() {
           senderName: profile.name,
           messageType: 'text',
           timestamp: nextMessage.timestamp,
+          status: 'delivered',
+          delivered: true,
+          read: false,
+          replyTo: nextMessage.replyTo,
         }),
       })
 
@@ -1234,16 +1307,6 @@ function App() {
           </div>
         ) : null}
 
-        {replyToMessage ? (
-          <div className="reply-bar">
-            <div>
-              <span>Replying to {replyToMessage.senderName || 'message'}</span>
-              <strong>{replyToMessage.text || (replyToMessage.messageType === 'image' ? 'Photo' : replyToMessage.messageType === 'audio' ? 'Voice message' : 'Message')}</strong>
-            </div>
-            <button className="clear-btn" type="button" onClick={() => setReplyToMessage(null)}>Cancel</button>
-          </div>
-        ) : null}
-
         {pendingAttachment ? (
           <div className="composer-preview">
             <div className="attachment-card">
@@ -1275,6 +1338,12 @@ function App() {
             <button className="composer-action" type="button" onClick={scrollToBottom}>
               ⬇️
             </button>
+          ) : null}
+          {replyToMessage ? (
+            <div className="composer-reply-preview">
+              <span>Replying to {replyToMessage.senderName || 'message'}</span>
+              <strong>{replyToMessage.text || (replyToMessage.messageType === 'image' ? 'Photo' : replyToMessage.messageType === 'audio' ? 'Voice message' : 'Message')}</strong>
+            </div>
           ) : null}
           <input
             type="file"
