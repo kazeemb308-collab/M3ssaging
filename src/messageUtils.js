@@ -12,11 +12,13 @@ function shouldPreserveExistingField(key, incomingValue, existingValue) {
   }
 
   if (key === 'status') {
-    return incomingValue === 'sent' && (existingValue === 'delivered' || existingValue === 'seen')
+    return (incomingValue == null && existingValue != null)
+      || (incomingValue === 'sent' && (existingValue === 'delivered' || existingValue === 'seen'))
   }
 
   if (key === 'read' || key === 'delivered') {
-    return incomingValue === false && Boolean(existingValue)
+    return (incomingValue == null && existingValue != null)
+      || (incomingValue === false && Boolean(existingValue))
   }
 
   return false
@@ -173,6 +175,15 @@ export function getMessageStatus(message = {}) {
   }
 
   return 'sent'
+}
+
+export function isPresenceFresh(presence = {}, now = Date.now(), staleAfterMs = 60000) {
+  const lastActive = Number(presence?.lastActive || 0)
+  if (!lastActive || !Number.isFinite(lastActive)) {
+    return false
+  }
+
+  return Boolean(presence?.online) && now - lastActive <= staleAfterMs
 }
 
 function getAttachmentStoreKey(roomId) {

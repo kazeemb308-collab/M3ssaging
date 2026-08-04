@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { firebaseReady, loadFirebaseServices } from './firebase'
 import './App.css'
-import { applyDeliveredReceipts, applyReadReceipts, getMessageStatus, hydrateMessagesWithAttachments, mergeMessages, persistMessages, removeMessagesByIdentity, retryAsync, updateMessageByIdentity } from './messageUtils'
+import { applyDeliveredReceipts, applyReadReceipts, getMessageStatus, hydrateMessagesWithAttachments, isPresenceFresh, mergeMessages, persistMessages, removeMessagesByIdentity, retryAsync, updateMessageByIdentity } from './messageUtils'
 
 const demoMessages = [
   {
@@ -255,9 +255,10 @@ function App() {
     }
 
     const [, remotePresence] = remotePresenceEntries[0]
+    const lastActive = Number(remotePresence?.lastActive || 0)
     return {
-      online: Boolean(remotePresence?.online),
-      lastActive: Number(remotePresence?.lastActive || 0),
+      online: isPresenceFresh(remotePresence, Date.now()),
+      lastActive,
     }
   }
 
@@ -281,15 +282,18 @@ function App() {
       return 'typing...'
     }
 
-    if (!nextPresence?.lastActive) {
+    const lastActive = Number(nextPresence?.lastActive || 0)
+    const isFresh = isPresenceFresh(nextPresence, presenceClock)
+
+    if (!lastActive) {
       return 'offline'
     }
 
-    if (nextPresence?.online) {
+    if (isFresh) {
       return 'online'
     }
 
-    const difference = presenceClock - Number(nextPresence?.lastActive || 0)
+    const difference = presenceClock - lastActive
     if (difference < 60000) {
       return 'last active just now'
     }
@@ -299,7 +303,7 @@ function App() {
       return `last active ${minutes}m ago`
     }
 
-    return `last active ${new Date(Number(nextPresence?.lastActive || 0)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    return `last active ${new Date(lastActive).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
   }
 
   const toggleSettings = () => setSettingsOpen((current) => !current)
@@ -1411,9 +1415,10 @@ function App() {
         }
 
         if (payload.type === 'presence' && payload.senderId !== profile.name) {
+          const lastActive = Number(payload.lastActive || Date.now())
           setPartnerPresence({
-            online: Boolean(payload.online),
-            lastActive: Number(payload.lastActive || Date.now()),
+            online: isPresenceFresh(payload, Date.now()),
+            lastActive,
           })
         }
       } catch {
@@ -1462,9 +1467,10 @@ function App() {
         }
 
         if (event.data.type === 'presence' && event.data.senderId !== profile.name) {
+          const lastActive = Number(event.data.lastActive || Date.now())
           setPartnerPresence({
-            online: Boolean(event.data.online),
-            lastActive: Number(event.data.lastActive || Date.now()),
+            online: isPresenceFresh(event.data, Date.now()),
+            lastActive,
           })
         }
       }

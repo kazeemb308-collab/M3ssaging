@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyDeliveredReceipts, applyReadReceipts, getMessageStatus, mergeMessages, persistMessages, retryAsync } from './messageUtils.js'
+import { applyDeliveredReceipts, applyReadReceipts, getMessageStatus, isPresenceFresh, mergeMessages, persistMessages, retryAsync } from './messageUtils.js'
 
 test('deduplicates optimistic messages when the server resolves them with the same clientId', () => {
   const optimisticMessage = {
@@ -148,6 +148,39 @@ test('preserves optimistic reply metadata and delivery status when server data i
   assert.equal(result[0].delivered, true)
 })
 
+test('preserves an already-delivered status when partial server data clears the flags', () => {
+  const optimisticMessage = {
+    id: 'local-1',
+    clientId: 'client-1',
+    senderId: 'me',
+    senderName: 'Me',
+    text: 'Hello',
+    timestamp: 100,
+    read: true,
+    delivered: true,
+    status: 'seen',
+  }
+
+  const serverMessage = {
+    id: 'server-1',
+    clientId: 'client-1',
+    senderId: 'me',
+    senderName: 'Me',
+    text: 'Hello',
+    timestamp: 100,
+    read: null,
+    delivered: null,
+    status: null,
+  }
+
+  const result = mergeMessages([optimisticMessage], [serverMessage])
+
+  assert.equal(result.length, 1)
+  assert.equal(result[0].read, true)
+  assert.equal(result[0].delivered, true)
+  assert.equal(result[0].status, 'seen')
+})
+
 test('derives WhatsApp-like statuses from delivery and read state', () => {
   assert.equal(getMessageStatus({ read: false, delivered: false }), 'sent')
   assert.equal(getMessageStatus({ read: false, delivered: true }), 'delivered')
@@ -172,4 +205,11 @@ test('retries transient async failures and eventually succeeds', async () => {
 test('supports sending and failed network states for outgoing messages', () => {
   assert.equal(getMessageStatus({ status: 'sending' }), 'sending')
   assert.equal(getMessageStatus({ status: 'failed' }), 'failed')
+})
+
+test('treats stale presence heartbeat as offline instead of online', () => {
+  const now = 1_000_000
+  assert.equal(isPresenceFresh({ online: true, lastActive: now - 30_000 }, now), true)
+  assert.equal(isPresenceFresh({ online: true, lastActive: now - 90_000 }, now), false)
+  assert.equal(isPresenceFresh({ online: false, lastActive: now - 10_000 }, now), false)
 })
