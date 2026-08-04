@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 
 const store = new Map()
+const presenceStore = new Map()
 
 function normalizeRoomId(roomId) {
   return String(roomId || 'default').trim().toLowerCase().replace(/\s+/g, '-') || 'default'
@@ -15,6 +16,31 @@ function saveRoomMessages(roomId, messages) {
   const normalizedRoomId = normalizeRoomId(roomId)
   store.set(normalizedRoomId, messages)
   return messages
+}
+
+export function getRoomPresence(roomId) {
+  const normalizedRoomId = normalizeRoomId(roomId)
+  return presenceStore.get(normalizedRoomId) || {}
+}
+
+export function upsertRoomPresence(roomId, senderId, nextPresence = {}) {
+  if (!senderId) {
+    return getRoomPresence(roomId)
+  }
+
+  const normalizedRoomId = normalizeRoomId(roomId)
+  const currentPresence = getRoomPresence(normalizedRoomId)
+
+  const nextSnapshot = {
+    ...currentPresence,
+    [senderId]: {
+      online: Boolean(nextPresence.online),
+      lastActive: Number(nextPresence.lastActive || Date.now()),
+    },
+  }
+
+  presenceStore.set(normalizedRoomId, nextSnapshot)
+  return nextSnapshot
 }
 
 function messageMatchesIdentity(message = {}, candidate = []) {
@@ -82,6 +108,13 @@ export function applyReadReceipts(messages = [], messageIds = [], read = true) {
 export default async function handler(req, res) {
   if (req.method === 'GET') {
     const roomId = req.query.room || 'default'
+    const wantsPresence = String(req.query.presence || '').toLowerCase() === '1' || String(req.query.presence || '').toLowerCase() === 'true'
+
+    if (wantsPresence) {
+      res.status(200).json(getRoomPresence(roomId))
+      return
+    }
+
     res.status(200).json(getRoomMessages(roomId))
     return
   }
@@ -104,9 +137,18 @@ export default async function handler(req, res) {
       status,
       delivered,
       replyTo,
+      online,
+      lastActive,
+      presence,
     } = req.body || {}
     const normalizedRoomId = normalizeRoomId(roomId)
     const existingMessages = getRoomMessages(normalizedRoomId)
+
+    if (typeof senderId === 'string' && (typeof online === 'boolean' || typeof lastActive === 'number' || typeof presence === 'object')) {
+      const nextPresence = upsertRoomPresence(normalizedRoomId, senderId, presence || { online, lastActive })
+      res.status(200).json(nextPresence)
+      return
+    }
 
     if (Array.isArray(deleteMessageIds)) {
       const nextMessages = existingMessages.filter((existingMessage) => !messageMatchesIdentity(existingMessage, deleteMessageIds))

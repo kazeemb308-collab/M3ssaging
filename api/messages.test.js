@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyDeliveredReceipts, applyReadReceipts } from './messages.js'
+import { applyDeliveredReceipts, applyReadReceipts, getRoomPresence, upsertRoomPresence } from './messages.js'
 
 test('marks matching message ids as read without changing unrelated messages', () => {
   const messages = [
@@ -30,4 +30,14 @@ test('marks matching message ids as delivered without immediately marking them a
     { id: 'msg-1', text: 'Hello', read: false, delivered: true, status: 'delivered' },
     { id: 'msg-2', text: 'World', read: false, delivered: false, status: 'sent' },
   ])
+})
+
+test('stores room presence updates and returns the latest shared presence snapshot', () => {
+  upsertRoomPresence('couple-room', 'alice', { online: true, lastActive: 123456 })
+  upsertRoomPresence('couple-room', 'alice', { online: false, lastActive: 654321 })
+
+  const presenceSnapshot = getRoomPresence('couple-room')
+
+  assert.equal(presenceSnapshot.alice.online, false)
+  assert.equal(presenceSnapshot.alice.lastActive, 654321)
 })

@@ -81,6 +81,7 @@ function App() {
   const [activeMessageAction, setActiveMessageAction] = useState(null)
   const [editingMessage, setEditingMessage] = useState(null)
   const [editMessageDraft, setEditMessageDraft] = useState('')
+  const [partnerPresence, setPartnerPresence] = useState({ online: false, lastActive: Date.now() })
   const [peerTyping, setPeerTyping] = useState(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState(null)
@@ -146,6 +147,56 @@ function App() {
   }
 
   const normalizedRoomId = (profile.roomId || 'couple-room').trim().toLowerCase().replace(/\s+/g, '-') || 'couple-room'
+
+  const getPresenceSnapshotForPartner = (snapshot = {}) => {
+    const remotePresenceEntries = Object.entries(snapshot || {}).filter(([senderId]) => senderId !== profile.name)
+    if (!remotePresenceEntries.length) {
+      return { online: false, lastActive: Date.now() }
+    }
+
+    const [, remotePresence] = remotePresenceEntries[0]
+    return {
+      online: Boolean(remotePresence?.online),
+      lastActive: Number(remotePresence?.lastActive || Date.now()),
+    }
+  }
+
+  const syncPresenceFromApi = async (roomId) => {
+    try {
+      const response = await fetch(`/api/messages?room=${encodeURIComponent(roomId)}&presence=1`)
+      if (!response.ok) {
+        return
+      }
+
+      const snapshot = await response.json()
+      const nextPresence = getPresenceSnapshotForPartner(snapshot)
+      setPartnerPresence(nextPresence)
+    } catch {
+      // best-effort only
+    }
+  }
+
+  const formatPresenceLabel = (nextPresence = partnerPresence) => {
+    if (peerTyping) {
+      return 'typing...'
+    }
+
+    if (nextPresence?.online) {
+      return 'online'
+    }
+
+    const difference = Date.now() - Number(nextPresence?.lastActive || Date.now())
+    if (difference < 60000) {
+      return 'last active just now'
+    }
+
+    if (difference < 3600000) {
+      const minutes = Math.max(1, Math.floor(difference / 60000))
+      return `last active ${minutes}m ago`
+    }
+
+    return `last active ${new Date(Number(nextPresence?.lastActive || Date.now())).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+  }
 
   const toggleSettings = () => setSettingsOpen((current) => !current)
 
@@ -398,7 +449,7 @@ function App() {
     }
 
     try {
-      await fetch('/api/messages', {
+      const response = await fetch('/api/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -409,6 +460,11 @@ function App() {
           status: 'delivered',
         }),
       })
+
+      if (response.ok) {
+        const remoteMessages = await response.json()
+        saveMessages(remoteMessages, normalizedRoomId)
+      }
     } catch {
       // best-effort only
     }
@@ -454,7 +510,7 @@ function App() {
     }
 
     try {
-      await fetch('/api/messages', {
+      const response = await fetch('/api/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -465,6 +521,11 @@ function App() {
           status: 'seen',
         }),
       })
+
+      if (response.ok) {
+        const remoteMessages = await response.json()
+        saveMessages(remoteMessages, normalizedRoomId)
+      }
     } catch {
       // best-effort only
     }
@@ -522,6 +583,40 @@ function App() {
       senderId: profile.name,
       isTyping,
     })
+  }
+
+  const sendPresenceUpdate = async (online = true) => {
+    if (!profile.name) {
+      return
+    }
+
+    const nextPresence = {
+      type: 'presence',
+      roomId: normalizedRoomId,
+      senderId: profile.name,
+      online,
+      lastActive: Date.now(),
+    }
+
+    if (channelRef.current) {
+      channelRef.current.postMessage(nextPresence)
+    }
+
+    try {
+      await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...nextPresence,
+          presence: {
+            online,
+            lastActive: nextPresence.lastActive,
+          },
+        }),
+      })
+    } catch {
+      // best-effort only
+    }
   }
 
   const scheduleTypingTimeout = () => {
@@ -949,13 +1044,7 @@ function App() {
         const hydratedMessages = hydrateMessagesWithAttachments(normalizedRoomId, mergedMessages, window.localStorage)
         setMessages(hydratedMessages)
         window.localStorage.setItem(`m3ssaging-messages:${normalizedRoomId}`, JSON.stringify(hydratedMessages))
-      }
-
-      if (profile.name) {
-        const unreadMessages = messages.filter((message) => message.senderId !== profile.name && !message.read)
-        if (unreadMessages.length) {
-          await sendReadReceipt(getReceiptTargetList(unreadMessages))
-        }
+        await markIncomingMessagesRead(hydratedMessages)
       }
     }
 
@@ -972,6 +1061,17 @@ function App() {
 
     const channel = new window.BroadcastChannel(`m3ssaging-${normalizedRoomId}`)
     channelRef.current = channel
+    sendPresenceUpdate(true)
+
+    const presenceHeartbeat = window.setInterval(() => {
+      void sendPresenceUpdate(true)
+    }, 15000)
+
+    const presencePoller = window.setInterval(() => {
+      void syncPresenceFromApi(normalizedRoomId)
+    }, 5000)
+
+    void syncPresenceFromApi(normalizedRoomId)
 
     channel.onmessage = (event) => {
       if (event.data.roomId !== normalizedRoomId) {
@@ -999,11 +1099,33 @@ function App() {
           scheduleTypingTimeout()
         }
       }
+
+      if (event.data.type === 'presence' && event.data.senderId !== profile.name) {
+        setPartnerPresence({
+          online: Boolean(event.data.online),
+          lastActive: Number(event.data.lastActive || Date.now()),
+        })
+      }
     }
+
+    const handlePageHide = () => {
+      sendPresenceUpdate(false)
+    }
+
+    const handleBeforeUnload = () => {
+      sendPresenceUpdate(false)
+    }
+
+    window.addEventListener('pagehide', handlePageHide)
+    window.addEventListener('beforeunload', handleBeforeUnload)
 
     return () => {
       unsubscribeFirebase?.()
       window.clearInterval(intervalId)
+      window.clearInterval(presenceHeartbeat)
+      window.clearInterval(presencePoller)
+      window.removeEventListener('pagehide', handlePageHide)
+      window.removeEventListener('beforeunload', handleBeforeUnload)
       channel.close()
     }
   }, [profile.name, normalizedRoomId])
@@ -1363,7 +1485,13 @@ function App() {
               <button className="nav-tab active">Chat</button>
             </div>
             <div className="top-nav-identity">
-              <span>{profile.partnerName || 'Private room'}</span>
+              <div className="identity-text-stack">
+                <span>{profile.partnerName || 'Private room'}</span>
+                <div className="presence-row">
+                  <span className={partnerPresence.online || peerTyping ? 'presence-dot online' : 'presence-dot'} />
+                  <small className={partnerPresence.online || peerTyping ? 'presence-online' : 'presence-offline'}>{formatPresenceLabel()}</small>
+                </div>
+              </div>
               <button className="ghost-btn settings-btn" onClick={toggleSettings} aria-label="Open settings">
                 ⚙️
               </button>
