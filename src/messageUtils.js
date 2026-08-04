@@ -64,6 +64,72 @@ export function mergeMessages(existingMessages = [], incomingMessages = []) {
   return sortMessages(nextMessages)
 }
 
+function buildMessageIdentitySet(messageIds = []) {
+  return new Set((Array.isArray(messageIds) ? messageIds : []).flatMap((messageId) => {
+    if (typeof messageId === 'string') {
+      return [messageId]
+    }
+
+    return [messageId?.id, messageId?.clientId, messageId?.localId, messageId?.tempId].filter(Boolean)
+  }))
+}
+
+function messageMatchesIdentity(message = {}, messageIds = []) {
+  if (!Array.isArray(messageIds) || !messageIds.length) {
+    return false
+  }
+
+  const nextMessageIds = buildMessageIdentitySet(messageIds)
+  return nextMessageIds.has(message?.id)
+    || nextMessageIds.has(message?.clientId)
+    || nextMessageIds.has(message?.localId)
+    || nextMessageIds.has(message?.tempId)
+}
+
+export function updateMessageByIdentity(messages = [], message = {}, updates = {}) {
+  if (!message || !Array.isArray(messages)) {
+    return messages
+  }
+
+  return messages.map((existingMessage) => {
+    if (!messageMatchesIdentity(existingMessage, [message])) {
+      return existingMessage
+    }
+
+    return {
+      ...existingMessage,
+      ...updates,
+    }
+  })
+}
+
+export function removeMessagesByIdentity(messages = [], messageIds = []) {
+  if (!Array.isArray(messages)) {
+    return []
+  }
+
+  return messages.filter((message) => !messageMatchesIdentity(message, messageIds))
+}
+
+export function applyDeliveredReceipts(messages = [], messageIds = []) {
+  if (!Array.isArray(messageIds) || !messageIds.length) {
+    return messages
+  }
+
+  return messages.map((message) => {
+    if (!messageMatchesIdentity(message, messageIds)) {
+      return message
+    }
+
+    return {
+      ...message,
+      delivered: true,
+      read: false,
+      status: 'delivered',
+    }
+  })
+}
+
 export function applyReadReceipts(messages = [], messageIds = []) {
   if (!Array.isArray(messageIds) || !messageIds.length) {
     return messages

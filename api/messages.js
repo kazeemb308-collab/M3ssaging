@@ -17,6 +17,49 @@ function saveRoomMessages(roomId, messages) {
   return messages
 }
 
+function messageMatchesIdentity(message = {}, candidate = []) {
+  if (!Array.isArray(candidate) || !candidate.length) {
+    return false
+  }
+
+  const identityCandidates = candidate.flatMap((entry) => [
+    entry?.id,
+    entry?.clientId,
+    entry?.localId,
+    entry?.tempId,
+    typeof entry === 'string' ? entry : null,
+  ]).filter(Boolean)
+
+  return identityCandidates.includes(message?.id)
+    || identityCandidates.includes(message?.clientId)
+    || identityCandidates.includes(message?.localId)
+    || identityCandidates.includes(message?.tempId)
+}
+
+export function applyDeliveredReceipts(messages = [], messageIds = [], delivered = true) {
+  return messages.map((message) => {
+    if (!Array.isArray(messageIds)) {
+      return message
+    }
+
+    const matchesReceipt = messageIds.includes(message?.id)
+      || messageIds.includes(message?.clientId)
+      || messageIds.includes(message?.localId)
+      || messageIds.includes(message?.tempId)
+
+    if (!matchesReceipt) {
+      return message
+    }
+
+    return {
+      ...message,
+      read: false,
+      delivered: Boolean(delivered),
+      status: delivered ? 'delivered' : message?.status || 'sent',
+    }
+  })
+}
+
 export function applyReadReceipts(messages = [], messageIds = [], read = true) {
   return messages.map((message) => {
     if (!Array.isArray(messageIds)) {
@@ -54,6 +97,9 @@ export default async function handler(req, res) {
       attachment,
       timestamp,
       readMessageIds,
+      deliveredMessageIds,
+      deleteMessageIds,
+      updateMessage,
       read,
       status,
       delivered,
@@ -61,6 +107,39 @@ export default async function handler(req, res) {
     } = req.body || {}
     const normalizedRoomId = normalizeRoomId(roomId)
     const existingMessages = getRoomMessages(normalizedRoomId)
+
+    if (Array.isArray(deleteMessageIds)) {
+      const nextMessages = existingMessages.filter((existingMessage) => !messageMatchesIdentity(existingMessage, deleteMessageIds))
+      saveRoomMessages(normalizedRoomId, nextMessages)
+      res.status(200).json(nextMessages)
+      return
+    }
+
+    if (updateMessage && typeof updateMessage === 'object') {
+      const nextMessages = existingMessages.map((existingMessage) => {
+        if (!messageMatchesIdentity(existingMessage, [updateMessage.target])) {
+          return existingMessage
+        }
+
+        return {
+          ...existingMessage,
+          text: String(updateMessage.text || existingMessage.text || '').trim(),
+          edited: Boolean(updateMessage.edited),
+          updatedAt: typeof updateMessage.updatedAt === 'number' ? updateMessage.updatedAt : Date.now(),
+        }
+      })
+
+      saveRoomMessages(normalizedRoomId, nextMessages)
+      res.status(200).json(nextMessages)
+      return
+    }
+
+    if (Array.isArray(deliveredMessageIds)) {
+      const nextMessages = applyDeliveredReceipts(existingMessages, deliveredMessageIds, delivered)
+      saveRoomMessages(normalizedRoomId, nextMessages)
+      res.status(200).json(nextMessages)
+      return
+    }
 
     if (Array.isArray(readMessageIds)) {
       const nextMessages = applyReadReceipts(existingMessages, readMessageIds, read)

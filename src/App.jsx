@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { addDoc, collection, doc, getDocs, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
+import { addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
 import { db, firebaseReady } from './firebase'
 import './App.css'
-import { applyReadReceipts, getMessageStatus, hydrateMessagesWithAttachments, mergeMessages, persistMessages } from './messageUtils'
+import { applyDeliveredReceipts, applyReadReceipts, getMessageStatus, hydrateMessagesWithAttachments, mergeMessages, persistMessages, removeMessagesByIdentity, updateMessageByIdentity } from './messageUtils'
 
 const demoMessages = [
   {
@@ -78,6 +78,9 @@ function App() {
   const [lightboxImage, setLightboxImage] = useState(null)
   const [pendingAttachment, setPendingAttachment] = useState(null)
   const [replyToMessage, setReplyToMessage] = useState(null)
+  const [activeMessageAction, setActiveMessageAction] = useState(null)
+  const [editingMessage, setEditingMessage] = useState(null)
+  const [editMessageDraft, setEditMessageDraft] = useState('')
   const [peerTyping, setPeerTyping] = useState(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState(null)
@@ -87,6 +90,7 @@ function App() {
   const channelRef = useRef(null)
   const typingTimeoutRef = useRef(null)
   const messageListRef = useRef(null)
+  const messageHoldTimerRef = useRef(null)
   const mediaRecorderRef = useRef(null)
   const recordingIntervalRef = useRef(null)
   const prevMessageRef = useRef(null)
@@ -145,6 +149,45 @@ function App() {
 
   const toggleSettings = () => setSettingsOpen((current) => !current)
 
+  const clearMessageHoldTimer = () => {
+    if (messageHoldTimerRef.current) {
+      window.clearTimeout(messageHoldTimerRef.current)
+      messageHoldTimerRef.current = null
+    }
+  }
+
+  const closeMessageActions = () => {
+    setActiveMessageAction(null)
+    clearMessageHoldTimer()
+  }
+
+  const startMessageHold = (message) => {
+    if (!message || message.senderId !== profile.name) {
+      return
+    }
+
+    clearMessageHoldTimer()
+    messageHoldTimerRef.current = window.setTimeout(() => {
+      setActiveMessageAction(message)
+    }, 450)
+  }
+
+  const commitMessages = (nextMessages, roomId) => {
+    setMessages(nextMessages)
+
+    if (typeof window !== 'undefined') {
+      persistMessages(roomId, nextMessages, window.localStorage)
+    }
+
+    if (channelRef.current) {
+      channelRef.current.postMessage({ type: 'message-sync', roomId, messages: nextMessages })
+    }
+
+    window.requestAnimationFrame(() => {
+      scrollToBottom()
+    })
+  }
+
   const saveMessages = (nextMessages, roomId) => {
     setMessages((currentMessages) => {
       const mergedMessages = mergeMessages(currentMessages, nextMessages)
@@ -190,8 +233,118 @@ function App() {
 
   const beginReplyToMessage = (message) => {
     setReplyToMessage(message)
+    setEditingMessage(null)
+    setActiveMessageAction(null)
     if (messageInputRef.current) {
       messageInputRef.current.focus()
+    }
+  }
+
+  const beginEditMessage = (message) => {
+    if (!message || message.senderId !== profile.name) {
+      return
+    }
+
+    setEditingMessage(message)
+    setEditMessageDraft(message.text || '')
+    setActiveMessageAction(null)
+  }
+
+  const cancelEditMessage = () => {
+    setEditingMessage(null)
+    setEditMessageDraft('')
+  }
+
+  const deleteMessage = async (message) => {
+    if (!message || message.senderId !== profile.name) {
+      return
+    }
+
+    const nextMessages = removeMessagesByIdentity(messages, [message])
+    commitMessages(nextMessages, normalizedRoomId)
+    setEditingMessage(null)
+    setEditMessageDraft('')
+    setActiveMessageAction(null)
+
+    try {
+      await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomId: normalizedRoomId,
+          deleteMessageIds: getReceiptTargetIds(message),
+        }),
+      })
+    } catch {
+      // best-effort only
+    }
+
+    if (db && firebaseReady) {
+      try {
+        const snapshot = await getDocs(collection(db, 'rooms', normalizedRoomId, 'messages'))
+        const docsToDelete = snapshot.docs.filter((document) => {
+          const data = document.data()
+          return Boolean(data?.clientId && data.clientId === message.clientId)
+            || Boolean(data?.senderId && data?.text === message.text && data?.timestamp === message.timestamp && data?.senderId === message.senderId)
+        })
+
+        await Promise.all(docsToDelete.map((document) => deleteDoc(doc(db, 'rooms', normalizedRoomId, 'messages', document.id))))
+      } catch {
+        // best-effort only
+      }
+    }
+  }
+
+  const saveEditedMessage = async (message) => {
+    const nextText = editMessageDraft.trim()
+    if (!message || !nextText || message.senderId !== profile.name) {
+      return
+    }
+
+    const nextMessages = updateMessageByIdentity(messages, message, {
+      text: nextText,
+      edited: true,
+      timestamp: Date.now(),
+    })
+    commitMessages(nextMessages, normalizedRoomId)
+    setEditingMessage(null)
+    setEditMessageDraft('')
+    setActiveMessageAction(null)
+
+    try {
+      await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomId: normalizedRoomId,
+          updateMessage: {
+            target: message,
+            text: nextText,
+            edited: true,
+            updatedAt: Date.now(),
+          },
+        }),
+      })
+    } catch {
+      // best-effort only
+    }
+
+    if (db && firebaseReady) {
+      try {
+        const snapshot = await getDocs(collection(db, 'rooms', normalizedRoomId, 'messages'))
+        const matches = snapshot.docs.filter((document) => {
+          const data = document.data()
+          return data?.clientId === message.clientId || data?.timestamp === message.timestamp
+        })
+
+        await Promise.all(matches.map((document) => updateDoc(doc(db, 'rooms', normalizedRoomId, 'messages', document.id), {
+          text: nextText,
+          edited: true,
+          updatedAt: Date.now(),
+        })))
+      } catch {
+        // best-effort only
+      }
     }
   }
 
@@ -221,6 +374,62 @@ function App() {
   const getReceiptTargetIds = (message) => [message?.id, message?.clientId, message?.localId, message?.tempId].filter(Boolean)
 
   const getReceiptTargetList = (incomingMessages = []) => Array.from(new Set(incomingMessages.flatMap((message) => getReceiptTargetIds(message))))
+
+  const sendDeliveredReceipt = async (messageIds) => {
+    const receiptTargets = Array.from(new Set((messageIds || []).flatMap((messageId) => {
+      if (typeof messageId === 'string') {
+        return [messageId]
+      }
+
+      return getReceiptTargetIds(messageId)
+    })))
+
+    if (!receiptTargets.length || !profile.name || typeof window === 'undefined') {
+      return
+    }
+
+    if (channelRef.current) {
+      channelRef.current.postMessage({
+        type: 'delivered-receipt',
+        roomId: normalizedRoomId,
+        senderId: profile.name,
+        messageIds: receiptTargets,
+      })
+    }
+
+    try {
+      await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomId: normalizedRoomId,
+          deliveredMessageIds: receiptTargets,
+          read: false,
+          delivered: true,
+          status: 'delivered',
+        }),
+      })
+    } catch {
+      // best-effort only
+    }
+
+    if (db && firebaseReady) {
+      try {
+        const clientIdTargets = receiptTargets.filter((target) => typeof target === 'string' && target.startsWith('client-'))
+        if (clientIdTargets.length) {
+          const receiptQuery = query(collection(db, 'rooms', normalizedRoomId, 'messages'), where('clientId', 'in', clientIdTargets.slice(0, 10)))
+          const receiptSnapshot = await getDocs(receiptQuery)
+          await Promise.all(receiptSnapshot.docs.map((document) => updateDoc(doc(db, 'rooms', normalizedRoomId, 'messages', document.id), {
+            read: false,
+            delivered: true,
+            status: 'delivered',
+          })))
+        }
+      } catch {
+        // best-effort only
+      }
+    }
+  }
 
   const sendReadReceipt = async (messageIds) => {
     const receiptTargets = Array.from(new Set((messageIds || []).flatMap((messageId) => {
@@ -281,6 +490,14 @@ function App() {
   const markIncomingMessagesRead = async (incomingMessages = messages) => {
     if (typeof window === 'undefined' || !profile.name) {
       return
+    }
+
+    const undeliveredIncoming = incomingMessages.filter((message) => message.senderId !== profile.name && !message.delivered)
+    if (undeliveredIncoming.length) {
+      const deliveredTargets = getReceiptTargetList(undeliveredIncoming)
+      const deliveredMessages = applyDeliveredReceipts(incomingMessages, deliveredTargets)
+      saveMessages(deliveredMessages, normalizedRoomId)
+      await sendDeliveredReceipt(deliveredTargets)
     }
 
     const unreadIncoming = incomingMessages.filter((message) => message.senderId !== profile.name && !message.read)
@@ -766,6 +983,11 @@ function App() {
         return
       }
 
+      if (event.data.type === 'delivered-receipt' && event.data.senderId !== profile.name) {
+        setMessages((currentMessages) => applyDeliveredReceipts(currentMessages, event.data.messageIds || []))
+        return
+      }
+
       if (event.data.type === 'read-receipt' && event.data.senderId !== profile.name) {
         setMessages((currentMessages) => applyReadReceipts(currentMessages, event.data.messageIds || []))
         return
@@ -798,6 +1020,35 @@ function App() {
       })
     }
   }, [messages, showScrollToBottom])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const handlePointerDown = (event) => {
+      const isInsideMenu = event.target.closest?.('.message-actions-menu')
+      const isInsideMessage = event.target.closest?.('.message-row')
+
+      if (!isInsideMenu && !isInsideMessage) {
+        closeMessageActions()
+      }
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        closeMessageActions()
+      }
+    }
+
+    window.addEventListener('pointerdown', handlePointerDown)
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -1211,18 +1462,29 @@ function App() {
               <article
                 key={message.id}
                 className={`message-row ${isMine ? 'mine' : 'their'}`}
+                onMouseDown={() => startMessageHold(message)}
+                onMouseUp={clearMessageHoldTimer}
+                onMouseLeave={clearMessageHoldTimer}
                 onTouchStart={(event) => {
                   if (event.touches?.[0]) {
                     event.currentTarget.dataset.touchStartX = String(event.touches[0].clientX)
                   }
+                  startMessageHold(message)
                 }}
                 onTouchEnd={(event) => {
+                  clearMessageHoldTimer()
                   const startX = Number(event.currentTarget.dataset.touchStartX || '0')
                   const endX = event.changedTouches?.[0]?.clientX ?? 0
                   if (endX - startX > 90) {
                     beginReplyToMessage(message)
                   }
                   delete event.currentTarget.dataset.touchStartX
+                }}
+                onContextMenu={(event) => {
+                  if (isMine) {
+                    event.preventDefault()
+                    setActiveMessageAction(message)
+                  }
                 }}
               >
                 <div className={`message-bubble ${isSystem ? 'system' : isMine ? 'me' : 'her'}`}>
@@ -1234,7 +1496,22 @@ function App() {
                         <strong>{message.replyTo.text || (message.replyTo.messageType === 'image' ? 'Photo' : message.replyTo.messageType === 'audio' ? 'Voice message' : 'Message')}</strong>
                       </div>
                     ) : null}
-                    {message.text ? <p>{message.text}</p> : null}
+                    {editingMessage?.id === message.id || editingMessage?.clientId === message.clientId ? (
+                      <div className="edit-message-box">
+                        <textarea
+                          value={editMessageDraft}
+                          onChange={(event) => setEditMessageDraft(event.target.value)}
+                          rows={3}
+                          className="edit-message-input"
+                        />
+                        <div className="edit-message-actions">
+                          <button className="secondary-btn" type="button" onClick={cancelEditMessage}>Cancel</button>
+                          <button className="primary-btn" type="button" onClick={() => saveEditedMessage(message)}>Save</button>
+                        </div>
+                      </div>
+                    ) : (
+                      message.text ? <p>{message.text}</p> : null
+                    )}
                     {message.attachment ? (
                       message.messageType === 'image' ? (
                         <div className="attachment-preview">
@@ -1262,14 +1539,23 @@ function App() {
                     <div className="status-row">
                       <div className="message-timestamp">
                         {message.timestamp ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                        {message.edited ? <span className="edited-badge">Edited</span> : null}
                       </div>
                       {isMine ? (
-                        <div
-                          className={`message-status ${messageStatus}`}
-                          aria-label={messageStatus === 'seen' ? 'Seen by partner' : messageStatus === 'delivered' ? 'Delivered' : 'Sent'}
-                          title={messageStatus === 'seen' ? 'Seen by partner' : messageStatus === 'delivered' ? 'Delivered' : 'Sent'}
-                        >
-                          {messageStatus === 'seen' || messageStatus === 'delivered' ? '✓✓' : '✓'}
+                        <div className="mine-message-actions">
+                          {activeMessageAction?.id === message.id || activeMessageAction?.clientId === message.clientId ? (
+                            <div className="message-actions-menu">
+                              <button type="button" onClick={(event) => { event.stopPropagation(); beginEditMessage(message) }}>Edit</button>
+                              <button type="button" onClick={(event) => { event.stopPropagation(); deleteMessage(message) }}>Delete</button>
+                            </div>
+                          ) : null}
+                          <div
+                            className={`message-status ${messageStatus}`}
+                            aria-label={messageStatus === 'seen' ? 'Seen by partner' : messageStatus === 'delivered' ? 'Delivered' : 'Sent'}
+                            title={messageStatus === 'seen' ? 'Seen by partner' : messageStatus === 'delivered' ? 'Delivered' : 'Sent'}
+                          >
+                            {messageStatus === 'seen' || messageStatus === 'delivered' ? '✓✓' : '✓'}
+                          </div>
                         </div>
                       ) : null}
                     </div>
