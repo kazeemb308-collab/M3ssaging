@@ -236,6 +236,30 @@ export function hydrateMessagesWithAttachments(roomId, messages = [], storage = 
   })
 }
 
+export async function retryAsync(operation, options = {}) {
+  const retries = Math.max(0, Number(options.retries ?? 0))
+  const delayMs = Math.max(0, Number(options.delayMs ?? 0))
+
+  let lastError = null
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await operation()
+    } catch (error) {
+      lastError = error
+      if (attempt >= retries) {
+        throw error
+      }
+
+      if (delayMs > 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, delayMs))
+      }
+    }
+  }
+
+  throw lastError
+}
+
 export function persistMessages(roomId, messages = [], storage = window?.localStorage) {
   if (!roomId || !Array.isArray(messages)) {
     return false

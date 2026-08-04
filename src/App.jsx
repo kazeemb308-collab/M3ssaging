@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
-import { db, firebaseReady } from './firebase'
+import { firebaseReady, loadFirebaseServices } from './firebase'
 import './App.css'
-import { applyDeliveredReceipts, applyReadReceipts, getMessageStatus, hydrateMessagesWithAttachments, mergeMessages, persistMessages, removeMessagesByIdentity, updateMessageByIdentity } from './messageUtils'
+import { applyDeliveredReceipts, applyReadReceipts, getMessageStatus, hydrateMessagesWithAttachments, mergeMessages, persistMessages, removeMessagesByIdentity, retryAsync, updateMessageByIdentity } from './messageUtils'
 
 const demoMessages = [
   {
@@ -24,17 +23,107 @@ const createMessageClientId = () => `client-${Date.now()}-${Math.random().toStri
 
 const getMessagesApiUrl = (roomId) => `/api/messages?room=${encodeURIComponent(roomId)}`
 
-async function syncMessagesFromApi(roomId) {
-  try {
-    const response = await fetch(getMessagesApiUrl(roomId))
-    if (!response.ok) {
-      throw new Error('Unable to sync messages')
-    }
+const MAX_IMAGE_DIMENSION = 1600
+const TARGET_IMAGE_BLOB_SIZE = 640000
 
-    const nextMessages = await response.json()
-    return Array.isArray(nextMessages) ? nextMessages : []
-  } catch {
+const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader()
+  reader.onload = () => resolve(reader.result)
+  reader.onerror = () => reject(new Error('Unable to read file'))
+  reader.readAsDataURL(file)
+})
+
+const loadImageElement = (src) => new Promise((resolve, reject) => {
+  const image = new Image()
+  image.decoding = 'async'
+  image.onload = () => resolve(image)
+  image.onerror = () => reject(new Error('Unable to decode image'))
+  image.src = src
+})
+
+const compressImageFile = async (file) => {
+  if (!file || !file.type?.startsWith('image/')) {
+    return null
+  }
+
+  const sourceDataUrl = await readFileAsDataUrl(file)
+  const image = await loadImageElement(sourceDataUrl)
+  const sourceWidth = image.naturalWidth || image.width || 1
+  const sourceHeight = image.naturalHeight || image.height || 1
+  const scaleRatio = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(sourceWidth, 1), MAX_IMAGE_DIMENSION / Math.max(sourceHeight, 1))
+
+  const canvas = document.createElement('canvas')
+  const targetWidth = Math.max(1, Math.round(sourceWidth * scaleRatio))
+  const targetHeight = Math.max(1, Math.round(sourceHeight * scaleRatio))
+  canvas.width = targetWidth
+  canvas.height = targetHeight
+
+  const context = canvas.getContext('2d')
+  if (!context) {
+    return {
+      name: file.name,
+      type: file.type,
+      data: sourceDataUrl,
+    }
+  }
+
+  context.imageSmoothingEnabled = true
+  context.imageSmoothingQuality = 'high'
+  context.drawImage(image, 0, 0, targetWidth, targetHeight)
+
+  const outputMimeType = file.type === 'image/png' ? 'image/jpeg' : file.type
+  let quality = 0.82
+  let compressedDataUrl = canvas.toDataURL(outputMimeType, quality)
+
+  while (compressedDataUrl.length > TARGET_IMAGE_BLOB_SIZE && quality > 0.45) {
+    quality -= 0.08
+    compressedDataUrl = canvas.toDataURL(outputMimeType, quality)
+  }
+
+  return {
+    name: file.name,
+    type: outputMimeType,
+    data: compressedDataUrl,
+  }
+}
+
+let activeMessageSync = null
+
+async function syncMessagesFromApi(roomId) {
+  if (!roomId) {
     return []
+  }
+
+  if (typeof window !== 'undefined' && !window.navigator.onLine) {
+    return []
+  }
+
+  if (activeMessageSync) {
+    return activeMessageSync
+  }
+
+  activeMessageSync = (async () => {
+    try {
+      const response = await fetch(getMessagesApiUrl(roomId), {
+        headers: { 'Cache-Control': 'no-cache' },
+        cache: 'no-store',
+      })
+
+      if (!response.ok) {
+        throw new Error('Unable to sync messages')
+      }
+
+      const nextMessages = await response.json()
+      return Array.isArray(nextMessages) ? nextMessages : []
+    } catch {
+      return []
+    }
+  })()
+
+  try {
+    return await activeMessageSync
+  } finally {
+    activeMessageSync = null
   }
 }
 
@@ -90,7 +179,9 @@ function App() {
   const [isInstalled, setIsInstalled] = useState(false)
 
   const channelRef = useRef(null)
+  const eventSourceRef = useRef(null)
   const typingTimeoutRef = useRef(null)
+  const firebaseServicesRef = useRef({ db: null, firestore: null })
   const messageListRef = useRef(null)
   const messageHoldTimerRef = useRef(null)
   const mediaRecorderRef = useRef(null)
@@ -248,6 +339,21 @@ function App() {
     })
   }
 
+  const markMessageAsSent = (clientId) => {
+    setMessages((currentMessages) => currentMessages.map((message) => {
+      if (message.clientId !== clientId && message.id !== clientId) {
+        return message
+      }
+
+      return {
+        ...message,
+        status: 'sent',
+        delivered: false,
+        read: false,
+      }
+    }))
+  }
+
   const saveMessages = (nextMessages, roomId) => {
     setMessages((currentMessages) => {
       const mergedMessages = mergeMessages(currentMessages, nextMessages)
@@ -339,8 +445,11 @@ function App() {
       // best-effort only
     }
 
-    if (db && firebaseReady) {
+    const db = firebaseServicesRef.current.db
+    const firestore = firebaseServicesRef.current.firestore
+    if (db && firebaseReady && firestore) {
       try {
+        const { getDocs, collection, deleteDoc, doc } = firestore
         const snapshot = await getDocs(collection(db, 'rooms', normalizedRoomId, 'messages'))
         const docsToDelete = snapshot.docs.filter((document) => {
           const data = document.data()
@@ -389,8 +498,11 @@ function App() {
       // best-effort only
     }
 
-    if (db && firebaseReady) {
+    const db = firebaseServicesRef.current.db
+    const firestore = firebaseServicesRef.current.firestore
+    if (db && firebaseReady && firestore) {
       try {
+        const { getDocs, collection, updateDoc, doc } = firestore
         const snapshot = await getDocs(collection(db, 'rooms', normalizedRoomId, 'messages'))
         const matches = snapshot.docs.filter((document) => {
           const data = document.data()
@@ -478,8 +590,11 @@ function App() {
       // best-effort only
     }
 
-    if (db && firebaseReady) {
+    const db = firebaseServicesRef.current.db
+    const firestore = firebaseServicesRef.current.firestore
+    if (db && firebaseReady && firestore) {
       try {
+        const { getDocs, query, collection, where, updateDoc, doc } = firestore
         const clientIdTargets = receiptTargets.filter((target) => typeof target === 'string' && target.startsWith('client-'))
         if (clientIdTargets.length) {
           const receiptQuery = query(collection(db, 'rooms', normalizedRoomId, 'messages'), where('clientId', 'in', clientIdTargets.slice(0, 10)))
@@ -539,8 +654,11 @@ function App() {
       // best-effort only
     }
 
-    if (db && firebaseReady) {
+    const db = firebaseServicesRef.current.db
+    const firestore = firebaseServicesRef.current.firestore
+    if (db && firebaseReady && firestore) {
       try {
+        const { getDocs, query, collection, where, updateDoc, doc } = firestore
         const clientIdTargets = receiptTargets.filter((target) => typeof target === 'string' && target.startsWith('client-'))
         if (clientIdTargets.length) {
           const receiptQuery = query(collection(db, 'rooms', normalizedRoomId, 'messages'), where('clientId', 'in', clientIdTargets.slice(0, 10)))
@@ -862,13 +980,14 @@ function App() {
 
     setUploadError('')
 
-    const reader = new FileReader()
-    reader.onload = () => {
-      const attachment = {
-        name: file.name,
-        type: file.type,
-        data: reader.result,
-      }
+    try {
+      const attachment = file.type.startsWith('image/')
+        ? await compressImageFile(file)
+        : {
+            name: file.name,
+            type: file.type,
+            data: await readFileAsDataUrl(file),
+          }
 
       const messageType = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file'
       const defaultText = file.type.startsWith('image/') ? '📷 Image' : file.type.startsWith('video/') ? '🎬 Video' : '📎 File'
@@ -878,13 +997,9 @@ function App() {
         messageType,
         text: defaultText,
       })
-    }
-
-    reader.onerror = () => {
+    } catch {
       setUploadError('Unable to prepare the selected file. Please try again.')
     }
-
-    reader.readAsDataURL(file)
   }
 
   const sendPreparedAttachment = async () => {
@@ -919,12 +1034,15 @@ function App() {
     setShowScrollToBottom(false)
     scrollToBottom()
 
-    if (db && firebaseReady) {
+    const db = firebaseServicesRef.current.db
+    const firestore = firebaseServicesRef.current.firestore
+    if (db && firebaseReady && firestore) {
       try {
-        await addDoc(collection(db, 'rooms', normalizedRoomId, 'messages'), {
+        const { addDoc, collection, serverTimestamp } = firestore
+        await retryAsync(() => addDoc(collection(db, 'rooms', normalizedRoomId, 'messages'), {
           ...nextMessage,
           createdAt: serverTimestamp(),
-        })
+        }), { retries: 2, delayMs: 250 })
 
         setMessages((currentMessages) => currentMessages.map((message) => {
           if (message.clientId !== nextMessage.clientId && message.id !== nextMessage.id) {
@@ -1057,12 +1175,15 @@ function App() {
     setVoiceMessageStatus('Ready')
     setRecordingDuration(0)
 
-    if (db && firebaseReady) {
+    const db = firebaseServicesRef.current.db
+    const firestore = firebaseServicesRef.current.firestore
+    if (db && firebaseReady && firestore) {
       try {
-        await addDoc(collection(db, 'rooms', normalizedRoomId, 'messages'), {
+        const { addDoc, collection, serverTimestamp } = firestore
+        await retryAsync(() => addDoc(collection(db, 'rooms', normalizedRoomId, 'messages'), {
           ...nextMessage,
           createdAt: serverTimestamp(),
-        })
+        }), { retries: 2, delayMs: 250 })
 
         setMessages((currentMessages) => currentMessages.map((message) => {
           if (message.clientId !== nextMessage.clientId && message.id !== nextMessage.id) {
@@ -1158,29 +1279,44 @@ function App() {
 
     let unsubscribeFirebase = null
 
-    if (db && firebaseReady) {
+    const initializeCloudSync = async () => {
+      if (!firebaseReady) {
+        return
+      }
+
+      const { db, auth } = await loadFirebaseServices()
+      if (!db || !auth) {
+        return
+      }
+
+      firebaseServicesRef.current.db = db
+      firebaseServicesRef.current.firestore = await import('firebase/firestore')
+
+      const { collection, onSnapshot, orderBy, query } = firebaseServicesRef.current.firestore
       const messagesRef = collection(db, 'rooms', normalizedRoomId, 'messages')
       const q = query(messagesRef, orderBy('createdAt', 'asc'))
 
       unsubscribeFirebase = onSnapshot(q, (snapshot) => {
-        const nextMessages = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          clientId: doc.data().clientId || null,
-          senderId: doc.data().senderId || 'unknown',
-          senderName: doc.data().senderName || 'Someone',
-          text: doc.data().text || '',
-          messageType: doc.data().messageType || 'text',
-          attachment: doc.data().attachment || null,
-          timestamp: doc.data().timestamp || doc.data().createdAt?.toMillis?.() || Date.now(),
-          read: Boolean(doc.data().read),
-          delivered: Boolean(doc.data().delivered || doc.data().read),
-          status: doc.data().status || (doc.data().read ? 'seen' : doc.data().delivered ? 'delivered' : 'sent'),
-          replyTo: doc.data().replyTo || null,
+        const nextMessages = snapshot.docs.map((document) => ({
+          id: document.id,
+          clientId: document.data().clientId || null,
+          senderId: document.data().senderId || 'unknown',
+          senderName: document.data().senderName || 'Someone',
+          text: document.data().text || '',
+          messageType: document.data().messageType || 'text',
+          attachment: document.data().attachment || null,
+          timestamp: document.data().timestamp || document.data().createdAt?.toMillis?.() || Date.now(),
+          read: Boolean(document.data().read),
+          delivered: Boolean(document.data().delivered || document.data().read),
+          status: document.data().status || (document.data().read ? 'seen' : document.data().delivered ? 'delivered' : 'sent'),
+          replyTo: document.data().replyTo || null,
         }))
 
         setMessages((currentMessages) => mergeMessages(currentMessages, nextMessages))
       })
     }
+
+    void initializeCloudSync()
 
     const loadMessages = async () => {
       const savedMessages = window.localStorage.getItem(`m3ssaging-messages:${normalizedRoomId}`)
@@ -1193,6 +1329,10 @@ function App() {
         } catch {
           setMessages(demoMessages)
         }
+      }
+
+      if (firebaseReady && firebaseServicesRef.current.db) {
+        return
       }
 
       const remoteMessages = await syncMessagesFromApi(normalizedRoomId)
@@ -1218,16 +1358,58 @@ function App() {
     void loadMessages()
     setChannelReady(true)
 
-    const intervalId = window.setInterval(() => {
-      void loadMessages()
-    }, 2000)
-
-    if (typeof window === 'undefined' || !('BroadcastChannel' in window)) {
-      return () => window.clearInterval(intervalId)
+    if (typeof window === 'undefined' || !('EventSource' in window) || (firebaseReady && firebaseServicesRef.current.db)) {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        const channel = new window.BroadcastChannel(`m3ssaging-${normalizedRoomId}`)
+        channelRef.current = channel
+      }
+      return () => {
+        window.clearInterval(presenceHeartbeat)
+        window.clearInterval(presencePoller)
+        channelRef.current?.close()
+        channelRef.current = null
+      }
     }
 
-    const channel = new window.BroadcastChannel(`m3ssaging-${normalizedRoomId}`)
-    channelRef.current = channel
+    const eventSource = new window.EventSource(`/api/events?room=${encodeURIComponent(normalizedRoomId)}`)
+    eventSourceRef.current = eventSource
+    eventSource.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data)
+        if (payload.roomId !== normalizedRoomId) {
+          return
+        }
+
+        if (payload.type === 'message-sync') {
+          setMessages((currentMessages) => mergeMessages(currentMessages, payload.messages || []))
+          return
+        }
+
+        if (payload.type === 'delivered-receipt' && payload.senderId !== profile.name) {
+          setMessages((currentMessages) => applyDeliveredReceipts(currentMessages, payload.messageIds || []))
+          return
+        }
+
+        if (payload.type === 'read-receipt' && payload.senderId !== profile.name) {
+          setMessages((currentMessages) => applyReadReceipts(currentMessages, payload.messageIds || []))
+          return
+        }
+
+        if (payload.type === 'presence' && payload.senderId !== profile.name) {
+          setPartnerPresence({
+            online: Boolean(payload.online),
+            lastActive: Number(payload.lastActive || Date.now()),
+          })
+        }
+      } catch {
+        // best-effort only
+      }
+    }
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      const channel = new window.BroadcastChannel(`m3ssaging-${normalizedRoomId}`)
+      channelRef.current = channel
+    }
     sendPresenceUpdate(true)
 
     const presenceHeartbeat = window.setInterval(() => {
@@ -1300,14 +1482,16 @@ function App() {
 
     return () => {
       unsubscribeFirebase?.()
-      window.clearInterval(intervalId)
+      eventSourceRef.current?.close()
+      eventSourceRef.current = null
       window.clearInterval(presenceHeartbeat)
       window.clearInterval(presencePoller)
       window.removeEventListener('pagehide', handlePageHide)
       window.removeEventListener('beforeunload', handleBeforeUnload)
       window.removeEventListener('offline', handleOfflineStatus)
       window.removeEventListener('online', handleOnlineStatus)
-      channel.close()
+      channelRef.current?.close()
+      channelRef.current = null
     }
   }, [profile.name, normalizedRoomId])
 
@@ -1395,6 +1579,9 @@ function App() {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         void markIncomingMessagesRead()
+        if (!firebaseServicesRef.current.db || !firebaseReady) {
+          void syncMessagesFromApi(normalizedRoomId)
+        }
       }
     }
 
@@ -1551,9 +1738,12 @@ function App() {
       }
     })
 
-    if (db && firebaseReady) {
+    const db = firebaseServicesRef.current.db
+    const firestore = firebaseServicesRef.current.firestore
+    if (db && firebaseReady && firestore) {
       try {
-        await addDoc(collection(db, 'rooms', normalizedRoomId, 'messages'), {
+        const { addDoc, collection, serverTimestamp } = firestore
+        await retryAsync(() => addDoc(collection(db, 'rooms', normalizedRoomId, 'messages'), {
           text: trimmedMessage,
           clientId: nextMessage.clientId,
           senderId: profile.name,
@@ -1565,20 +1755,9 @@ function App() {
           delivered: false,
           read: false,
           replyTo: nextMessage.replyTo,
-        })
+        }), { retries: 2, delayMs: 250 })
 
-        setMessages((currentMessages) => currentMessages.map((message) => {
-          if (message.clientId !== nextMessage.clientId && message.id !== nextMessage.id) {
-            return message
-          }
-
-          return {
-            ...message,
-            status: 'sent',
-            delivered: false,
-            read: false,
-          }
-        }))
+        markMessageAsSent(nextMessage.clientId)
       } catch {
         setMessages((currentMessages) => currentMessages.map((message) => {
           if (message.clientId !== nextMessage.clientId && message.id !== nextMessage.id) {
@@ -1597,41 +1776,33 @@ function App() {
     }
 
     try {
-      const response = await fetch('/api/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          roomId: normalizedRoomId,
-          message: trimmedMessage,
-          clientId: nextMessage.clientId,
-          senderId: profile.name,
-          senderName: profile.name,
-          messageType: 'text',
-          timestamp: nextMessage.timestamp,
-          status: 'sent',
-          delivered: false,
-          read: false,
-          replyTo: nextMessage.replyTo,
-        }),
-      })
-
-      if (response.ok) {
-        const remoteMessages = await response.json()
-        saveMessages(remoteMessages, normalizedRoomId)
-      } else {
-        setMessages((currentMessages) => currentMessages.map((message) => {
-          if (message.clientId !== nextMessage.clientId && message.id !== nextMessage.id) {
-            return message
-          }
-
-          return {
-            ...message,
-            status: 'failed',
+      const remoteMessages = await retryAsync(async () => {
+        const response = await fetch('/api/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roomId: normalizedRoomId,
+            message: trimmedMessage,
+            clientId: nextMessage.clientId,
+            senderId: profile.name,
+            senderName: profile.name,
+            messageType: 'text',
+            timestamp: nextMessage.timestamp,
+            status: 'sent',
             delivered: false,
             read: false,
-          }
-        }))
-      }
+            replyTo: nextMessage.replyTo,
+          }),
+        })
+
+        if (!response.ok) {
+          throw new Error('Unable to send message')
+        }
+
+        return response.json()
+      }, { retries: 2, delayMs: 250 })
+
+      saveMessages(remoteMessages, normalizedRoomId)
     } catch {
       setMessages((currentMessages) => currentMessages.map((message) => {
         if (message.clientId !== nextMessage.clientId && message.id !== nextMessage.id) {
@@ -1877,6 +2048,8 @@ function App() {
                             className="message-image"
                             src={message.attachment.data}
                             alt={message.attachment.name}
+                            loading="lazy"
+                            decoding="async"
                           />
                           <button
                             className="photo-view-btn"
@@ -1951,7 +2124,7 @@ function App() {
               <button className="clear-btn" type="button" onClick={() => setPendingAttachment(null)}>Cancel</button>
             </div>
             {pendingAttachment.messageType === 'image' ? (
-              <img className="preview-image" src={pendingAttachment.attachment.data} alt={pendingAttachment.attachment.name} />
+              <img className="preview-image" src={pendingAttachment.attachment.data} alt={pendingAttachment.attachment.name} loading="lazy" decoding="async" />
             ) : null}
             <label className="input-group compact">
               <span>Edit caption</span>

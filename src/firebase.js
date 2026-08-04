@@ -1,7 +1,3 @@
-import { initializeApp, getApps } from 'firebase/app'
-import { getAuth } from 'firebase/auth'
-import { getFirestore } from 'firebase/firestore'
-
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
@@ -14,12 +10,33 @@ const firebaseConfig = {
 const hasFirebaseConfig = Object.values(firebaseConfig).every(Boolean)
 
 export const firebaseReady = hasFirebaseConfig
+export const app = null
+export const auth = null
+export const db = null
 
-export const app = hasFirebaseConfig
-  ? getApps().length
-    ? getApps()[0]
-    : initializeApp(firebaseConfig)
-  : null
+let firebaseRuntimePromise = null
 
-export const auth = app ? getAuth(app) : null
-export const db = app ? getFirestore(app) : null
+export async function loadFirebaseServices() {
+  if (!firebaseReady) {
+    return { app: null, auth: null, db: null }
+  }
+
+  if (!firebaseRuntimePromise) {
+    firebaseRuntimePromise = (async () => {
+      const [{ initializeApp, getApps }, { getAuth }, { getFirestore }] = await Promise.all([
+        import('firebase/app'),
+        import('firebase/auth'),
+        import('firebase/firestore'),
+      ])
+
+      const resolvedApp = getApps().length ? getApps()[0] : initializeApp(firebaseConfig)
+      return {
+        app: resolvedApp,
+        auth: getAuth(resolvedApp),
+        db: getFirestore(resolvedApp),
+      }
+    })()
+  }
+
+  return firebaseRuntimePromise
+}

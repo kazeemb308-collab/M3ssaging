@@ -1,7 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-import { onAuthStateChanged, signInAnonymously, signOut as firebaseSignOut } from 'firebase/auth'
-import { auth, firebaseReady } from './firebase'
+import { firebaseReady, loadFirebaseServices } from './firebase'
 import App from './App'
 
 function AuthGate({ children }) {
@@ -9,31 +8,50 @@ function AuthGate({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!auth || !firebaseReady) {
-      setUser({ uid: 'demo-user' })
-      setLoading(false)
-      return
-    }
+    let cancelled = false
+    let unsubscribeAuth = null
 
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser)
-      setLoading(false)
-    })
+    const initializeAuth = async () => {
+      if (!firebaseReady) {
+        if (!cancelled) {
+          setUser({ uid: 'demo-user' })
+          setLoading(false)
+        }
+        return
+      }
 
-    return () => unsubscribe()
-  }, [])
+      const { auth } = await loadFirebaseServices()
+      if (!auth || cancelled) {
+        return
+      }
 
-  useEffect(() => {
-    if (!auth || !firebaseReady || user) {
-      return
-    }
+      const { onAuthStateChanged, signInAnonymously } = await import('firebase/auth')
+      unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+        if (cancelled) {
+          return
+        }
 
-    signInAnonymously(auth)
-      .catch(() => {
-        setUser({ uid: 'demo-user' })
+        setUser(currentUser)
         setLoading(false)
       })
-  }, [auth, firebaseReady, user])
+
+      if (!user) {
+        signInAnonymously(auth).catch(() => {
+          if (!cancelled) {
+            setUser({ uid: 'demo-user' })
+            setLoading(false)
+          }
+        })
+      }
+    }
+
+    void initializeAuth()
+
+    return () => {
+      cancelled = true
+      unsubscribeAuth?.()
+    }
+  }, [])
 
   if (loading) {
     return <div className="loading-screen">Connecting your private chat...</div>
@@ -55,4 +73,4 @@ function AppRouter() {
   )
 }
 
-export { AppRouter, firebaseSignOut }
+export { AppRouter }

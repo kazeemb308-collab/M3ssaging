@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyDeliveredReceipts, applyReadReceipts, getMessageStatus, mergeMessages, persistMessages } from './messageUtils.js'
+import { applyDeliveredReceipts, applyReadReceipts, getMessageStatus, mergeMessages, persistMessages, retryAsync } from './messageUtils.js'
 
 test('deduplicates optimistic messages when the server resolves them with the same clientId', () => {
   const optimisticMessage = {
@@ -152,6 +152,21 @@ test('derives WhatsApp-like statuses from delivery and read state', () => {
   assert.equal(getMessageStatus({ read: false, delivered: false }), 'sent')
   assert.equal(getMessageStatus({ read: false, delivered: true }), 'delivered')
   assert.equal(getMessageStatus({ read: true }), 'seen')
+})
+
+test('retries transient async failures and eventually succeeds', async () => {
+  let attempts = 0
+  const result = await retryAsync(async () => {
+    attempts += 1
+    if (attempts < 3) {
+      throw new Error('transient')
+    }
+
+    return 'ok'
+  }, { retries: 3, delayMs: 0 })
+
+  assert.equal(result, 'ok')
+  assert.equal(attempts, 3)
 })
 
 test('supports sending and failed network states for outgoing messages', () => {
