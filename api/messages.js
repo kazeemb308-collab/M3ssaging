@@ -165,8 +165,9 @@ export default async function handler(req, res) {
 
         return {
           ...existingMessage,
-          text: String(updateMessage.text || existingMessage.text || '').trim(),
-          edited: Boolean(updateMessage.edited),
+          text: typeof updateMessage.text === 'string' ? String(updateMessage.text).trim() : existingMessage.text,
+          reactions: Array.isArray(updateMessage.reactions) ? updateMessage.reactions : existingMessage.reactions || [],
+          edited: Boolean(updateMessage.edited || existingMessage.edited),
           updatedAt: typeof updateMessage.updatedAt === 'number' ? updateMessage.updatedAt : Date.now(),
         }
       })

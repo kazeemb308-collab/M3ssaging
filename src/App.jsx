@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { firebaseReady, loadFirebaseServices } from './firebase'
 import './App.css'
-import { applyDeliveredReceipts, applyReadReceipts, getMessageStatus, hydrateMessagesWithAttachments, isPresenceFresh, mergeMessages, mergeRemoteMessageSet, persistMessages, removeMessagesByIdentity, retryAsync, updateMessageByIdentity } from './messageUtils'
+import { applyDeliveredReceipts, applyReadReceipts, getMessageStatus, hydrateMessagesWithAttachments, isPresenceFresh, mergeMessages, mergeRemoteMessageSet, persistMessages, removeMessagesByIdentity, retryAsync, toggleMessageReaction, updateMessageByIdentity } from './messageUtils'
 
 const demoMessages = [
   {
@@ -168,6 +168,7 @@ function App() {
   const [pendingAttachment, setPendingAttachment] = useState(null)
   const [replyToMessage, setReplyToMessage] = useState(null)
   const [activeMessageAction, setActiveMessageAction] = useState(null)
+  const [reactionMenuMessage, setReactionMenuMessage] = useState(null)
   const [editingMessage, setEditingMessage] = useState(null)
   const [editMessageDraft, setEditMessageDraft] = useState('')
   const [partnerPresence, setPartnerPresence] = useState({ online: false, lastActive: 0 })
@@ -365,7 +366,43 @@ function App() {
 
   const closeMessageActions = () => {
     setActiveMessageAction(null)
+    setReactionMenuMessage(null)
     clearMessageHoldTimer()
+  }
+
+  const reactionEmojis = ['👍', '❤️', '😂', '🎉', '😮', '😢']
+
+  const handleReaction = async (message, emoji) => {
+    if (!message || !emoji || !profile.name) {
+      return
+    }
+
+    const updatedMessage = toggleMessageReaction(message, emoji, profile.name)
+    const nextMessages = updateMessageByIdentity(messages, message, { reactions: updatedMessage.reactions })
+    setMessages(nextMessages)
+    setReactionMenuMessage(null)
+    setActiveMessageAction(null)
+
+    if (typeof window !== 'undefined') {
+      persistMessages(normalizedRoomId, nextMessages, window.localStorage)
+    }
+
+    try {
+      await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomId: normalizedRoomId,
+          updateMessage: {
+            target: message,
+            reactions: updatedMessage.reactions,
+            updatedAt: Date.now(),
+          },
+        }),
+      })
+    } catch {
+      // best-effort only
+    }
   }
 
   const startMessageHold = (message) => {
@@ -931,15 +968,25 @@ function App() {
         void audioCtx.resume()
       }
 
-      const oscillator = audioCtx.createOscillator()
-      const gain = audioCtx.createGain()
-      oscillator.type = 'sine'
-      oscillator.frequency.value = 780
-      gain.gain.value = 0.05
-      oscillator.connect(gain)
-      gain.connect(audioCtx.destination)
-      oscillator.start()
-      oscillator.stop(audioCtx.currentTime + 0.08)
+      const createTone = (frequency, startTime, duration, volume) => {
+        const oscillator = audioCtx.createOscillator()
+        const gain = audioCtx.createGain()
+
+        oscillator.type = 'triangle'
+        oscillator.frequency.setValueAtTime(frequency, startTime)
+        gain.gain.setValueAtTime(0.0001, startTime)
+        gain.gain.exponentialRampToValueAtTime(volume, startTime + 0.02)
+        gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration)
+
+        oscillator.connect(gain)
+        gain.connect(audioCtx.destination)
+        oscillator.start(startTime)
+        oscillator.stop(startTime + duration)
+      }
+
+      const now = audioCtx.currentTime
+      createTone(780, now, 0.12, 0.07)
+      createTone(1040, now + 0.08, 0.14, 0.06)
     } catch {
       // ignore audio play errors
     }
@@ -1724,13 +1771,12 @@ function App() {
       return
     }
 
-    if (lastMessage.senderId !== profile.name && document.visibilityState === 'visible') {
+    const isIncomingMessage = lastMessage.senderId !== profile.name
+    if (isIncomingMessage && document.visibilityState === 'visible') {
       void markIncomingMessagesRead(messages)
     }
 
-    const shouldNotifyInBackground = lastMessage.senderId !== profile.name && (!document.hasFocus() || document.visibilityState !== 'visible')
-
-    if (shouldNotifyInBackground) {
+    if (isIncomingMessage) {
       const { title, body } = getNotificationPayload(lastMessage)
 
       playNotificationSound()
@@ -2174,6 +2220,43 @@ function App() {
                         <a className="attachment-link" href={message.attachment.data} download={message.attachment.name}>{message.attachment.name}</a>
                       )
                     ) : null}
+                    {Array.isArray(message.reactions) && message.reactions.length > 0 ? (
+                      <div className="reaction-row">
+                        {Array.from(new Map(
+                          message.reactions.reduce((accumulator, reaction) => {
+                            const key = reaction?.emoji || 'reaction'
+                            const match = accumulator.get(key)
+                            if (match) {
+                              match.count += 1
+                              match.active = match.active || reaction.senderId === profile.name
+                            } else {
+                              accumulator.set(key, { emoji: key, count: 1, active: reaction.senderId === profile.name })
+                            }
+                            return accumulator
+                          }, new Map()).values())
+                        ).map((reaction) => (
+                          <button
+                            key={`${message.id || message.clientId || 'message'}-${reaction.emoji}`}
+                            type="button"
+                            className={`reaction-chip ${reaction.active ? 'active' : ''}`}
+                            onClick={() => handleReaction(message, reaction.emoji)}
+                          >
+                            <span>{reaction.emoji}</span>
+                            <small>{reaction.count}</small>
+                          </button>
+                        ))}
+                        <button className="reaction-add-btn" type="button" onClick={() => setReactionMenuMessage(message)} aria-label="Add reaction">🙂</button>
+                      </div>
+                    ) : (
+                      <button className="reaction-add-btn" type="button" onClick={() => setReactionMenuMessage(message)} aria-label="Add reaction">🙂</button>
+                    )}
+                    {reactionMenuMessage && (reactionMenuMessage.id === message.id || reactionMenuMessage.clientId === message.clientId) ? (
+                      <div className="reaction-picker" role="menu" aria-label="Message reactions">
+                        {reactionEmojis.map((emoji) => (
+                          <button key={`${message.id || message.clientId || 'reaction'}-${emoji}`} type="button" className="reaction-picker-btn" onClick={() => handleReaction(message, emoji)}>{emoji}</button>
+                        ))}
+                      </div>
+                    ) : null}
                     <div className="status-row">
                       <div className="message-timestamp">
                         {message.timestamp ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
@@ -2184,6 +2267,7 @@ function App() {
                           {activeMessageAction?.id === message.id || activeMessageAction?.clientId === message.clientId ? (
                             <div className="message-actions-menu">
                               <button type="button" onClick={(event) => { event.stopPropagation(); beginEditMessage(message) }}>Edit</button>
+                              <button type="button" onClick={(event) => { event.stopPropagation(); setReactionMenuMessage(message) }}>React</button>
                               <button type="button" onClick={(event) => { event.stopPropagation(); deleteMessage(message) }}>Delete</button>
                             </div>
                           ) : null}
@@ -2261,6 +2345,12 @@ function App() {
               <strong>{replyToMessage.text || (replyToMessage.messageType === 'image' ? 'Photo' : replyToMessage.messageType === 'audio' ? 'Voice message' : 'Message')}</strong>
             </div>
           ) : null}
+          {isRecording ? (
+            <div className="recording-indicator" aria-live="polite">
+              <span className="recording-dot" />
+              <span>Recording voice message · {recordingDuration}s</span>
+            </div>
+          ) : null}
           <input
             type="file"
             ref={galleryInputRef}
@@ -2291,17 +2381,6 @@ function App() {
           <div className="composer-input-row">
             <button className="composer-action" type="button" onClick={() => galleryInputRef.current?.click()} aria-label="Attach file">
               <IconUpload />
-            </button>
-            <button className="composer-action" type="button" onClick={() => cameraInputRef.current?.click()} aria-label="Take photo">
-              <IconCamera />
-            </button>
-            <button
-              className="composer-action"
-              type="button"
-              onClick={startRecording}
-              aria-label={isRecording ? 'Stop recording' : 'Start recording'}
-            >
-              <IconMic />
             </button>
             <textarea
               ref={messageInputRef}
@@ -2363,6 +2442,17 @@ function App() {
               spellCheck="false"
               inputMode="text"
             />
+            <button className="composer-action" type="button" onClick={() => cameraInputRef.current?.click()} aria-label="Take photo">
+              <IconCamera />
+            </button>
+            <button
+              className={`composer-action ${isRecording ? 'recording' : ''}`}
+              type="button"
+              onClick={startRecording}
+              aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+            >
+              <IconMic />
+            </button>
             {draft.trim() ? (
               <button className="composer-send-btn" type="submit" aria-label="Send message"><IconSend /></button>
             ) : (

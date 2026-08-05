@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyDeliveredReceipts, applyReadReceipts, getMessageStatus, isPresenceFresh, mergeMessages, mergeRemoteMessageSet, persistMessages, retryAsync } from './messageUtils.js'
+import { applyDeliveredReceipts, applyReadReceipts, getMessageStatus, isPresenceFresh, mergeMessages, mergeRemoteMessageSet, persistMessages, retryAsync, toggleMessageReaction } from './messageUtils.js'
 
 test('deduplicates optimistic messages when the server resolves them with the same clientId', () => {
   const optimisticMessage = {
@@ -203,6 +203,25 @@ test('derives WhatsApp-like statuses from delivery and read state', () => {
   assert.equal(getMessageStatus({ read: false, delivered: false }), 'sent')
   assert.equal(getMessageStatus({ read: false, delivered: true }), 'delivered')
   assert.equal(getMessageStatus({ read: true }), 'seen')
+})
+
+test('adds and removes a user reaction without duplicating it', () => {
+  const baseMessage = {
+    id: 'msg-1',
+    senderId: 'them',
+    senderName: 'Them',
+    text: 'Hello',
+    reactions: [
+      { emoji: '👍', senderId: 'me' },
+      { emoji: '❤️', senderId: 'them' },
+    ],
+  }
+
+  const withReaction = toggleMessageReaction(baseMessage, '😂', 'me')
+  assert.equal(withReaction.reactions.filter((reaction) => reaction.emoji === '😂' && reaction.senderId === 'me').length, 1)
+
+  const withoutReaction = toggleMessageReaction(withReaction, '👍', 'me')
+  assert.equal(withoutReaction.reactions.some((reaction) => reaction.emoji === '👍' && reaction.senderId === 'me'), false)
 })
 
 test('retries transient async failures and eventually succeeds', async () => {

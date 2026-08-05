@@ -166,6 +166,22 @@ export function applyReadReceipts(messages = [], messageIds = []) {
   })
 }
 
+export function toggleMessageReaction(message = {}, emoji, senderId) {
+  if (!message || !emoji || !senderId) {
+    return message
+  }
+
+  const existingReactions = Array.isArray(message.reactions) ? message.reactions : []
+  const nextReactions = existingReactions.filter((reaction) => !(reaction?.emoji === emoji && reaction?.senderId === senderId))
+
+  nextReactions.push({ emoji, senderId })
+
+  return {
+    ...message,
+    reactions: nextReactions,
+  }
+}
+
 export function getMessageStatus(message = {}) {
   if (message?.status === 'sending') {
     return 'sending'
