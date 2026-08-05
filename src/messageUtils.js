@@ -102,6 +102,11 @@ export function updateMessageByIdentity(messages = [], message = {}, updates = {
     return messages
   }
 
+  const matchesTarget = messages.some((existingMessage) => messageMatchesIdentity(existingMessage, [message]))
+  if (!matchesTarget) {
+    return messages
+  }
+
   return messages.map((existingMessage) => {
     if (!messageMatchesIdentity(existingMessage, [message])) {
       return existingMessage

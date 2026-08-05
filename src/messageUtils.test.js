@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyDeliveredReceipts, applyReadReceipts, getMessageReactionSummary, getMessageStatus, isPresenceFresh, mergeMessages, mergeRemoteMessageSet, persistMessages, retryAsync, toggleMessageReaction } from './messageUtils.js'
+import { applyDeliveredReceipts, applyReadReceipts, getMessageReactionSummary, getMessageStatus, isPresenceFresh, mergeMessages, mergeRemoteMessageSet, persistMessages, retryAsync, toggleMessageReaction, updateMessageByIdentity } from './messageUtils.js'
 
 test('deduplicates optimistic messages when the server resolves them with the same clientId', () => {
   const optimisticMessage = {
@@ -240,6 +240,17 @@ test('summarizes reactions for the WhatsApp-style picker without rendering them 
     { emoji: '👍', count: 2, active: true },
     { emoji: '❤️', count: 1, active: false },
   ])
+})
+
+test('preserves the current conversation when a reaction target cannot be matched', () => {
+  const currentMessages = [
+    { id: 'msg-1', text: 'Hello' },
+    { id: 'msg-2', text: 'World' },
+  ]
+
+  const result = updateMessageByIdentity(currentMessages, { id: 'missing' }, { reactions: [{ emoji: '👍', senderId: 'me' }] })
+
+  assert.deepEqual(result, currentMessages)
 })
 
 test('retries transient async failures and eventually succeeds', async () => {
