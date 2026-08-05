@@ -273,6 +273,33 @@ test('keeps the most recent reaction state instead of clearing it with a stale e
   assert.deepEqual(result[0].reactions, [{ emoji: '👍', senderId: 'me' }])
 })
 
+test('matches a reaction target by stable message identity even when a stale object comes in without exact ids', () => {
+  const currentMessages = [{
+    id: 'msg-5',
+    senderId: 'them',
+    senderName: 'Them',
+    text: 'Hello',
+    timestamp: 500,
+    reactions: [],
+  }]
+
+  const staleTarget = {
+    senderId: 'them',
+    senderName: 'Them',
+    text: 'Hello',
+    timestamp: 500,
+  }
+
+  const result = updateMessageByIdentity(currentMessages, staleTarget, {
+    reactions: [{ emoji: '👍', senderId: 'me' }],
+    updatedAt: 600,
+  })
+
+  assert.equal(result[0].reactions.length, 1)
+  assert.equal(result[0].reactions[0].emoji, '👍')
+  assert.equal(result[0].reactions[0].senderId, 'me')
+})
+
 test('retries transient async failures and eventually succeeds', async () => {
   let attempts = 0
   const result = await retryAsync(async () => {

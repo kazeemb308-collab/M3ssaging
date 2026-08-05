@@ -79,13 +79,25 @@ function upsertRoomPresence(roomId, senderId, nextPresence = {}) {
   return nextSnapshot
 }
 
+function buildMessageIdentitySignature(message = {}) {
+  const senderId = message?.senderId || 'unknown'
+  const text = String(message?.text || '').trim()
+  const timestamp = Number(message?.timestamp || message?.createdAt || 0)
+  return `${senderId}:${text}:${Number.isFinite(timestamp) ? timestamp : '0'}`
+}
+
 function buildIdentitySet(messageIds = []) {
   return new Set((Array.isArray(messageIds) ? messageIds : []).flatMap((messageId) => {
     if (typeof messageId === 'string') {
       return [messageId]
     }
 
-    return [messageId?.id, messageId?.clientId, messageId?.localId, messageId?.tempId].filter(Boolean)
+    const identityCandidates = [messageId?.id, messageId?.clientId, messageId?.localId, messageId?.tempId].filter(Boolean)
+    if (identityCandidates.length) {
+      return identityCandidates
+    }
+
+    return [buildMessageIdentitySignature(messageId)]
   }))
 }
 
@@ -95,10 +107,12 @@ function messageMatchesIdentity(message = {}, candidate = []) {
   }
 
   const identityCandidates = buildIdentitySet(candidate)
+  const fallbackKey = buildMessageIdentitySignature(message)
   return identityCandidates.has(message?.id)
     || identityCandidates.has(message?.clientId)
     || identityCandidates.has(message?.localId)
     || identityCandidates.has(message?.tempId)
+    || identityCandidates.has(fallbackKey)
 }
 
 function applyDeliveredReceipts(messages = [], messageIds = [], delivered = true) {

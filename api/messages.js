@@ -43,23 +43,33 @@ export function upsertRoomPresence(roomId, senderId, nextPresence = {}) {
   return nextSnapshot
 }
 
+function buildMessageIdentitySignature(message = {}) {
+  const senderId = message?.senderId || 'unknown'
+  const text = String(message?.text || '').trim()
+  const timestamp = Number(message?.timestamp || message?.createdAt || 0)
+  return `${senderId}:${text}:${Number.isFinite(timestamp) ? timestamp : '0'}`
+}
+
 function messageMatchesIdentity(message = {}, candidate = []) {
   if (!Array.isArray(candidate) || !candidate.length) {
     return false
   }
 
-  const identityCandidates = candidate.flatMap((entry) => [
-    entry?.id,
-    entry?.clientId,
-    entry?.localId,
-    entry?.tempId,
-    typeof entry === 'string' ? entry : null,
-  ]).filter(Boolean)
+  const identityCandidates = candidate.flatMap((entry) => {
+    if (typeof entry === 'string') {
+      return [entry]
+    }
 
+    const directValues = [entry?.id, entry?.clientId, entry?.localId, entry?.tempId].filter(Boolean)
+    return directValues.length ? directValues : [buildMessageIdentitySignature(entry)]
+  })
+
+  const fallbackKey = buildMessageIdentitySignature(message)
   return identityCandidates.includes(message?.id)
     || identityCandidates.includes(message?.clientId)
     || identityCandidates.includes(message?.localId)
     || identityCandidates.includes(message?.tempId)
+    || identityCandidates.includes(fallbackKey)
 }
 
 export function applyDeliveredReceipts(messages = [], messageIds = [], delivered = true) {

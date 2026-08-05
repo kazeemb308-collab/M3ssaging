@@ -94,13 +94,26 @@ export function mergeRemoteMessageSet(existingMessages = [], incomingMessages = 
   return mergeMessages(existingMessages, safeIncomingMessages)
 }
 
+function buildMessageIdentitySignature(message = {}) {
+  const senderId = message?.senderId || 'unknown'
+  const text = String(message?.text || '').trim()
+  const timestamp = Number(message?.timestamp || message?.createdAt || 0)
+  const fallbackKey = `${senderId}:${text}:${Number.isFinite(timestamp) ? timestamp : '0'}`
+  return fallbackKey
+}
+
 function buildMessageIdentitySet(messageIds = []) {
   return new Set((Array.isArray(messageIds) ? messageIds : []).flatMap((messageId) => {
     if (typeof messageId === 'string') {
       return [messageId]
     }
 
-    return [messageId?.id, messageId?.clientId, messageId?.localId, messageId?.tempId].filter(Boolean)
+    const identityCandidates = [messageId?.id, messageId?.clientId, messageId?.localId, messageId?.tempId].filter(Boolean)
+    if (identityCandidates.length) {
+      return identityCandidates
+    }
+
+    return [buildMessageIdentitySignature(messageId)]
   }))
 }
 
@@ -110,10 +123,12 @@ function messageMatchesIdentity(message = {}, messageIds = []) {
   }
 
   const nextMessageIds = buildMessageIdentitySet(messageIds)
+  const fallbackIdentity = buildMessageIdentitySignature(message)
   return nextMessageIds.has(message?.id)
     || nextMessageIds.has(message?.clientId)
     || nextMessageIds.has(message?.localId)
     || nextMessageIds.has(message?.tempId)
+    || nextMessageIds.has(fallbackIdentity)
 }
 
 export function updateMessageByIdentity(messages = [], message = {}, updates = {}) {
