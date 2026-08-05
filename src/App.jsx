@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { firebaseReady, loadFirebaseServices } from './firebase'
 import './App.css'
-import { applyDeliveredReceipts, applyReadReceipts, getMessageReactionSummary, getMessageStatus, hydrateMessagesWithAttachments, isPresenceFresh, mergeMessages, mergeRemoteMessageSet, persistMessages, removeMessagesByIdentity, retryAsync, toggleMessageReaction, updateMessageByIdentity } from './messageUtils'
+import { applyDeliveredReceipts, applyReadReceipts, getMessageReactionSummary, getMessageStatus, getPresenceLabel, hydrateMessagesWithAttachments, isPresenceFresh, mergeMessages, mergeRemoteMessageSet, persistMessages, removeMessagesByIdentity, retryAsync, toggleMessageReaction, updateMessageByIdentity } from './messageUtils'
 
 const demoMessages = [
   {
@@ -260,14 +260,6 @@ function App() {
     }
   }, [isSignedUp])
 
-  useEffect(() => {
-    const clockInterval = window.setInterval(() => {
-      setPresenceClock(Date.now())
-    }, 30000)
-
-    return () => window.clearInterval(clockInterval)
-  }, [])
-
   const scrollToBottom = () => {
     if (!messageListRef.current) {
       return
@@ -298,8 +290,9 @@ function App() {
 
     const [, remotePresence] = remotePresenceEntries[0]
     const lastActive = Number(remotePresence?.lastActive || 0)
+    const isOnline = Boolean(remotePresence?.online) && Number.isFinite(lastActive) && lastActive > 0 && Date.now() - lastActive <= 60000
     return {
-      online: isPresenceFresh(remotePresence, Date.now()),
+      online: isOnline,
       lastActive,
     }
   }
@@ -319,30 +312,29 @@ function App() {
     }
   }
 
-  const formatPresenceLabel = (nextPresence = partnerPresence) => {
+  const formatPresenceLabel = (nextPresence = partnerPresence, now = presenceClock) => {
     if (peerTyping) {
       return 'typing...'
     }
 
-    const lastActive = Number(nextPresence?.lastActive || 0)
-    const isFresh = isPresenceFresh(nextPresence, presenceClock)
-
-    if (!lastActive) {
+    const normalizedPresence = nextPresence && typeof nextPresence === 'object' ? nextPresence : { online: false, lastActive: 0 }
+    const lastActive = Number(normalizedPresence.lastActive || 0)
+    if (!lastActive || !Number.isFinite(lastActive)) {
       return 'offline'
     }
 
-    if (isFresh) {
+    const isOnline = Boolean(normalizedPresence.online) && now - lastActive <= 60000
+    if (isOnline) {
       return 'online'
     }
 
-    const difference = presenceClock - lastActive
+    const difference = Math.max(0, now - lastActive)
     if (difference < 60000) {
       return 'last active just now'
     }
 
     if (difference < 3600000) {
-      const minutes = Math.max(1, Math.floor(difference / 60000))
-      return `last active ${minutes}m ago`
+      return `last active ${Math.max(1, Math.floor(difference / 60000))}m ago`
     }
 
     return `last active ${new Date(lastActive).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
@@ -372,26 +364,30 @@ function App() {
 
     const updatedMessage = toggleMessageReaction(message, emoji, profile.name)
 
-    const nextMessages = updateMessageByIdentity(Array.isArray(messages) && messages.length > 0 ? messages : demoMessages, message, {
-      reactions: updatedMessage.reactions,
-    })
-    const safeMessages = Array.isArray(nextMessages) && nextMessages.length > 0 ? nextMessages : Array.isArray(messages) && messages.length > 0 ? messages : demoMessages
+    setMessages((currentMessages) => {
+      const baseMessages = Array.isArray(currentMessages) && currentMessages.length > 0 ? currentMessages : Array.isArray(messages) && messages.length > 0 ? messages : demoMessages
+      const nextMessages = updateMessageByIdentity(baseMessages, message, {
+        reactions: updatedMessage.reactions,
+      })
+      const safeMessages = Array.isArray(nextMessages) && nextMessages.length > 0 ? nextMessages : baseMessages
 
-    setMessages(safeMessages)
+      if (typeof window !== 'undefined') {
+        persistMessages(normalizedRoomId, safeMessages, window.localStorage)
+      }
+
+      if (channelRef.current) {
+        channelRef.current.postMessage({
+          type: 'message-sync',
+          roomId: normalizedRoomId,
+          messages: safeMessages,
+        })
+      }
+
+      return safeMessages
+    })
+
     setReactionMenuMessage(null)
     setActiveMessageAction(null)
-
-    if (typeof window !== 'undefined') {
-      persistMessages(normalizedRoomId, safeMessages, window.localStorage)
-    }
-
-    if (channelRef.current) {
-      channelRef.current.postMessage({
-        type: 'message-sync',
-        roomId: normalizedRoomId,
-        messages: safeMessages,
-      })
-    }
 
     try {
       const response = await fetch('/api/messages', {
@@ -410,12 +406,14 @@ function App() {
       if (response.ok) {
         const remoteMessages = await response.json()
         if (Array.isArray(remoteMessages)) {
-          const mergedMessages = mergeRemoteMessageSet(Array.isArray(messages) ? messages : [], remoteMessages)
-          setMessages(mergedMessages)
-          persistMessages(normalizedRoomId, mergedMessages, window.localStorage)
-          if (channelRef.current) {
-            channelRef.current.postMessage({ type: 'message-sync', roomId: normalizedRoomId, messages: mergedMessages })
-          }
+          setMessages((currentMessages) => {
+            const mergedMessages = mergeRemoteMessageSet(currentMessages, remoteMessages)
+            persistMessages(normalizedRoomId, mergedMessages, window.localStorage)
+            if (channelRef.current) {
+              channelRef.current.postMessage({ type: 'message-sync', roomId: normalizedRoomId, messages: mergedMessages })
+            }
+            return mergedMessages
+          })
         }
       }
     } catch {
@@ -1678,6 +1676,20 @@ function App() {
       })
     }
   }, [messages, showScrollToBottom])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const updatePresenceClock = () => setPresenceClock(Date.now())
+    updatePresenceClock()
+    const presenceClockInterval = window.setInterval(updatePresenceClock, 30000)
+
+    return () => {
+      window.clearInterval(presenceClockInterval)
+    }
+  }, [])
 
   useEffect(() => {
     if (typeof window === 'undefined') {

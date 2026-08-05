@@ -254,6 +254,29 @@ export function isPresenceFresh(presence = {}, now = Date.now(), staleAfterMs = 
   return Boolean(presence?.online) && now - lastActive <= staleAfterMs
 }
 
+export function getPresenceLabel(presence = {}, now = Date.now()) {
+  const lastActive = Number(presence?.lastActive || 0)
+  if (!lastActive || !Number.isFinite(lastActive)) {
+    return 'offline'
+  }
+
+  const isOnline = Boolean(presence?.online) && now - lastActive <= 60000
+  if (isOnline) {
+    return 'online'
+  }
+
+  const difference = now - lastActive
+  if (difference < 60000) {
+    return 'last active just now'
+  }
+
+  if (difference < 3600000) {
+    return `last active ${Math.max(1, Math.floor(difference / 60000))}m ago`
+  }
+
+  return `last active ${new Date(lastActive).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+}
+
 function getAttachmentStoreKey(roomId) {
   return `m3ssaging-attachments:${roomId}`
 }

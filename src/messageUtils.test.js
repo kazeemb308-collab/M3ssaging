@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyDeliveredReceipts, applyReadReceipts, getMessageReactionSummary, getMessageStatus, isPresenceFresh, mergeMessages, mergeRemoteMessageSet, persistMessages, retryAsync, toggleMessageReaction, updateMessageByIdentity } from './messageUtils.js'
+import { applyDeliveredReceipts, applyReadReceipts, getMessageReactionSummary, getMessageStatus, getPresenceLabel, isPresenceFresh, mergeMessages, mergeRemoteMessageSet, persistMessages, retryAsync, toggleMessageReaction, updateMessageByIdentity } from './messageUtils.js'
 
 test('deduplicates optimistic messages when the server resolves them with the same clientId', () => {
   const optimisticMessage = {
@@ -298,4 +298,11 @@ test('treats stale presence heartbeat as offline instead of online', () => {
   assert.equal(isPresenceFresh({ online: true, lastActive: now - 30_000 }, now), true)
   assert.equal(isPresenceFresh({ online: true, lastActive: now - 90_000 }, now), false)
   assert.equal(isPresenceFresh({ online: false, lastActive: now - 10_000 }, now), false)
+})
+
+test('formats a stable online or last-active label using the real timestamp delta', () => {
+  const now = 1_000_000
+  assert.equal(getPresenceLabel({ online: true, lastActive: now - 30_000 }, now), 'online')
+  assert.equal(getPresenceLabel({ online: true, lastActive: now - 90_000 }, now), 'last active 1m ago')
+  assert.equal(getPresenceLabel({ online: false, lastActive: now - 10_000 }, now), 'last active just now')
 })
