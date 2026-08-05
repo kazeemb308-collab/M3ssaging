@@ -379,30 +379,29 @@ function App() {
 
     const updatedMessage = toggleMessageReaction(message, emoji, profile.name)
 
-    setMessages((currentMessages) => {
-      const previousMessages = Array.isArray(currentMessages) && currentMessages.length > 0
-        ? currentMessages
-        : Array.isArray(messages) && messages.length > 0
-          ? messages
-          : []
-
-      const nextMessages = updateMessageByIdentity(previousMessages, message, { reactions: updatedMessage.reactions })
-      const safeMessages = Array.isArray(nextMessages) && nextMessages.length > 0
-        ? nextMessages
-        : previousMessages
-
-      if (typeof window !== 'undefined') {
-        persistMessages(normalizedRoomId, safeMessages, window.localStorage)
-      }
-
-      return safeMessages
+    const nextMessages = updateMessageByIdentity(Array.isArray(messages) && messages.length > 0 ? messages : demoMessages, message, {
+      reactions: updatedMessage.reactions,
     })
+    const safeMessages = Array.isArray(nextMessages) && nextMessages.length > 0 ? nextMessages : Array.isArray(messages) && messages.length > 0 ? messages : demoMessages
 
+    setMessages(safeMessages)
     setReactionMenuMessage(null)
     setActiveMessageAction(null)
 
+    if (typeof window !== 'undefined') {
+      persistMessages(normalizedRoomId, safeMessages, window.localStorage)
+    }
+
+    if (channelRef.current) {
+      channelRef.current.postMessage({
+        type: 'message-sync',
+        roomId: normalizedRoomId,
+        messages: safeMessages,
+      })
+    }
+
     try {
-      await fetch('/api/messages', {
+      const response = await fetch('/api/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -414,6 +413,18 @@ function App() {
           },
         }),
       })
+
+      if (response.ok) {
+        const remoteMessages = await response.json()
+        if (Array.isArray(remoteMessages)) {
+          const mergedMessages = mergeRemoteMessageSet(Array.isArray(messages) ? messages : [], remoteMessages)
+          setMessages(mergedMessages)
+          persistMessages(normalizedRoomId, mergedMessages, window.localStorage)
+          if (channelRef.current) {
+            channelRef.current.postMessage({ type: 'message-sync', roomId: normalizedRoomId, messages: mergedMessages })
+          }
+        }
+      }
     } catch {
       // best-effort only
     }
