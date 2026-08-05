@@ -1673,9 +1673,6 @@ function App() {
         if (messageSyncPoller) {
           window.clearInterval(messageSyncPoller)
         }
-        if (backgroundRefreshPoller) {
-          window.clearInterval(backgroundRefreshPoller)
-        }
         channelRef.current?.close()
         channelRef.current = null
       }
@@ -1727,21 +1724,16 @@ function App() {
       void syncPresenceFromApi(normalizedRoomId)
     }, 5000)
 
-    const messageSyncPoller = window.setInterval(() => {
+    const refreshRoomState = () => {
       void syncMessagesFromApi(normalizedRoomId).then((remoteMessages) => {
         syncIncomingMessages(remoteMessages)
       })
       void syncPresenceFromApi(normalizedRoomId)
-    }, 5000)
+    }
 
-    const backgroundRefreshPoller = window.setInterval(() => {
-      void syncMessagesFromApi(normalizedRoomId).then((remoteMessages) => {
-        if (remoteMessages.length) {
-          syncIncomingMessages(remoteMessages)
-        }
-      })
-      void syncPresenceFromApi(normalizedRoomId)
-    }, 15000)
+    const messageSyncPoller = window.setInterval(() => {
+      refreshRoomState()
+    }, 2000)
 
     void syncPresenceFromApi(normalizedRoomId)
 
@@ -1938,9 +1930,7 @@ function App() {
 
     const handleVisibilityChange = () => {
       if (!firebaseServicesRef.current.db || !firebaseReady) {
-        void syncMessagesFromApi(normalizedRoomId).then((remoteMessages) => {
-          syncIncomingMessages(remoteMessages)
-        })
+        refreshRoomState()
       }
 
       if (document.visibilityState === 'visible') {
@@ -1950,17 +1940,13 @@ function App() {
 
     const handleWindowFocus = () => {
       if (!firebaseServicesRef.current.db || !firebaseReady) {
-        void syncMessagesFromApi(normalizedRoomId).then((remoteMessages) => {
-          syncIncomingMessages(remoteMessages)
-        })
+        refreshRoomState()
       }
     }
 
     const handlePageHide = () => {
       if (!firebaseServicesRef.current.db || !firebaseReady) {
-        void syncMessagesFromApi(normalizedRoomId).then((remoteMessages) => {
-          syncIncomingMessages(remoteMessages)
-        })
+        refreshRoomState()
       }
     }
 
