@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { firebaseReady, loadFirebaseServices } from './firebase'
 import './App.css'
-import { applyDeliveredReceipts, applyReadReceipts, getMessageReactionSummary, getMessageStatus, getPresenceLabel, hydrateMessagesWithAttachments, isPresenceFresh, mergeMessages, mergeRemoteMessageSet, persistMessages, removeMessagesByIdentity, retryAsync, toggleMessageReaction, updateMessageByIdentity } from './messageUtils'
+import { applyDeliveredReceipts, applyReadReceipts, getMessageStatus, hydrateMessagesWithAttachments, isPresenceFresh, mergeMessages, mergeRemoteMessageSet, persistMessages, removeMessagesByIdentity, retryAsync, toggleMessageReaction, updateMessageByIdentity } from './messageUtils'
 
 const demoMessages = [
   {
@@ -164,8 +164,6 @@ function App() {
   const [recordedAudioUrl, setRecordedAudioUrl] = useState(null)
   const [recordedAudioBlob, setRecordedAudioBlob] = useState(null)
   const [recordingDuration, setRecordingDuration] = useState(0)
-  const [voiceRecordLocked, setVoiceRecordLocked] = useState(false)
-  const [voiceRecordPaused, setVoiceRecordPaused] = useState(false)
   const [lightboxImage, setLightboxImage] = useState(null)
   const [pendingAttachment, setPendingAttachment] = useState(null)
   const [replyToMessage, setReplyToMessage] = useState(null)
@@ -188,12 +186,7 @@ function App() {
   const messageListRef = useRef(null)
   const messageHoldTimerRef = useRef(null)
   const mediaRecorderRef = useRef(null)
-  const recordingStreamRef = useRef(null)
   const recordingIntervalRef = useRef(null)
-  const voiceHoldTimerRef = useRef(null)
-  const voicePointerStartRef = useRef({ active: false, x: 0, y: 0 })
-  const autoSendRecordingRef = useRef(false)
-  const discardRecordingRef = useRef(false)
   const prevMessageRef = useRef(null)
   const initialMessagesLoadedRef = useRef(false)
   const audioChunksRef = useRef([])
@@ -252,6 +245,13 @@ function App() {
     </svg>
   )
 
+  const IconPencil = () => (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M4 16.5V20h3.5L17.5 9l-3.5-3.5L4 16.5Z" />
+      <path d="M13.5 5.5 17 9" />
+    </svg>
+  )
+
   useEffect(() => {
     syncMessageInputHeight()
   }, [draft])
@@ -266,6 +266,14 @@ function App() {
       })
     }
   }, [isSignedUp])
+
+  useEffect(() => {
+    const clockInterval = window.setInterval(() => {
+      setPresenceClock(Date.now())
+    }, 30000)
+
+    return () => window.clearInterval(clockInterval)
+  }, [])
 
   const scrollToBottom = () => {
     if (!messageListRef.current) {
@@ -297,9 +305,8 @@ function App() {
 
     const [, remotePresence] = remotePresenceEntries[0]
     const lastActive = Number(remotePresence?.lastActive || 0)
-    const isOnline = Boolean(remotePresence?.online) && Number.isFinite(lastActive) && lastActive > 0 && Date.now() - lastActive <= 60000
     return {
-      online: isOnline,
+      online: isPresenceFresh(remotePresence, Date.now()),
       lastActive,
     }
   }
@@ -319,29 +326,30 @@ function App() {
     }
   }
 
-  const formatPresenceLabel = (nextPresence = partnerPresence, now = presenceClock) => {
+  const formatPresenceLabel = (nextPresence = partnerPresence) => {
     if (peerTyping) {
       return 'typing...'
     }
 
-    const normalizedPresence = nextPresence && typeof nextPresence === 'object' ? nextPresence : { online: false, lastActive: 0 }
-    const lastActive = Number(normalizedPresence.lastActive || 0)
-    if (!lastActive || !Number.isFinite(lastActive)) {
+    const lastActive = Number(nextPresence?.lastActive || 0)
+    const isFresh = isPresenceFresh(nextPresence, presenceClock)
+
+    if (!lastActive) {
       return 'offline'
     }
 
-    const isOnline = Boolean(normalizedPresence.online) && now - lastActive <= 60000
-    if (isOnline) {
+    if (isFresh) {
       return 'online'
     }
 
-    const difference = Math.max(0, now - lastActive)
+    const difference = presenceClock - lastActive
     if (difference < 60000) {
       return 'last active just now'
     }
 
     if (difference < 3600000) {
-      return `last active ${Math.max(1, Math.floor(difference / 60000))}m ago`
+      const minutes = Math.max(1, Math.floor(difference / 60000))
+      return `last active ${minutes}m ago`
     }
 
     return `last active ${new Date(lastActive).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
@@ -370,34 +378,17 @@ function App() {
     }
 
     const updatedMessage = toggleMessageReaction(message, emoji, profile.name)
-
-    setMessages((currentMessages) => {
-      const baseMessages = Array.isArray(currentMessages) && currentMessages.length > 0 ? currentMessages : Array.isArray(messages) && messages.length > 0 ? messages : demoMessages
-      const nextMessages = updateMessageByIdentity(baseMessages, message, {
-        reactions: updatedMessage.reactions,
-      })
-      const safeMessages = Array.isArray(nextMessages) && nextMessages.length > 0 ? nextMessages : baseMessages
-
-      if (typeof window !== 'undefined') {
-        persistMessages(normalizedRoomId, safeMessages, window.localStorage)
-      }
-
-      if (channelRef.current) {
-        channelRef.current.postMessage({
-          type: 'message-sync',
-          roomId: normalizedRoomId,
-          messages: safeMessages,
-        })
-      }
-
-      return safeMessages
-    })
-
+    const nextMessages = updateMessageByIdentity(messages, message, { reactions: updatedMessage.reactions })
+    setMessages(nextMessages)
     setReactionMenuMessage(null)
     setActiveMessageAction(null)
 
+    if (typeof window !== 'undefined') {
+      persistMessages(normalizedRoomId, nextMessages, window.localStorage)
+    }
+
     try {
-      const response = await fetch('/api/messages', {
+      await fetch('/api/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -409,20 +400,6 @@ function App() {
           },
         }),
       })
-
-      if (response.ok) {
-        const remoteMessages = await response.json()
-        if (Array.isArray(remoteMessages)) {
-          setMessages((currentMessages) => {
-            const mergedMessages = mergeRemoteMessageSet(currentMessages, remoteMessages)
-            persistMessages(normalizedRoomId, mergedMessages, window.localStorage)
-            if (channelRef.current) {
-              channelRef.current.postMessage({ type: 'message-sync', roomId: normalizedRoomId, messages: mergedMessages })
-            }
-            return mergedMessages
-          })
-        }
-      }
     } catch {
       // best-effort only
     }
@@ -822,19 +799,6 @@ function App() {
     await sendReadReceipt(receiptTargets)
   }
 
-  const syncIncomingMessages = (incomingMessages) => {
-    if (!Array.isArray(incomingMessages) || !incomingMessages.length) {
-      return
-    }
-
-    setMessages((currentMessages) => {
-      const mergedMessages = mergeRemoteMessageSet(currentMessages, incomingMessages)
-      persistMessages(normalizedRoomId, mergedMessages, window.localStorage)
-      return mergedMessages
-    })
-    void markIncomingMessagesRead(incomingMessages)
-  }
-
   const sendTypingUpdate = (isTyping) => {
     if (!channelRef.current || !profile.name) {
       return
@@ -1049,45 +1013,12 @@ function App() {
     return 'audio/webm'
   }
 
-  const stopRecording = ({ autoSend = false, discard = false } = {}) => {
-    if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') {
-      return
-    }
-
-    autoSendRecordingRef.current = autoSend
-    discardRecordingRef.current = discard
-    mediaRecorderRef.current.stop()
-    setIsRecording(false)
-    setVoiceRecordLocked(false)
-    setVoiceRecordPaused(false)
-    setVoiceMessageStatus(discard ? 'Discarded' : autoSend ? 'Sending' : 'Processing')
-  }
-
-  const discardVoiceRecording = () => {
-    discardRecordingRef.current = true
-    autoSendRecordingRef.current = false
-
+  const stopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop()
+      setIsRecording(false)
+      setVoiceMessageStatus('Processing')
     }
-
-    if (recordingStreamRef.current) {
-      recordingStreamRef.current.getTracks().forEach((track) => track.stop())
-      recordingStreamRef.current = null
-    }
-
-    if (recordedAudioUrl) {
-      URL.revokeObjectURL(recordedAudioUrl)
-    }
-
-    setIsRecording(false)
-    setVoiceRecordLocked(false)
-    setVoiceRecordPaused(false)
-    setRecordedAudioUrl(null)
-    setRecordedAudioBlob(null)
-    setRecordingDuration(0)
-    setVoiceMessageStatus('Ready')
-    setRecordingError('')
   }
 
   const promptInstall = async () => {
@@ -1107,22 +1038,17 @@ function App() {
     requestNotificationPermission()
     setRecordingError('')
     if (isRecording) {
-      stopRecording({ autoSend: false })
+      stopRecording()
       return
     }
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-      recordingStreamRef.current = stream
       const recorderMimeType = getRecorderMimeType()
       const mediaRecorder = new window.MediaRecorder(stream, recorderMimeType ? { mimeType: recorderMimeType } : undefined)
       mediaRecorderRef.current = mediaRecorder
       audioChunksRef.current = []
-      autoSendRecordingRef.current = false
-      discardRecordingRef.current = false
       setIsRecording(true)
-      setVoiceRecordLocked(false)
-      setVoiceRecordPaused(false)
       setVoiceMessageStatus('Recording')
       setRecordedAudioUrl(null)
       setRecordingDuration(0)
@@ -1138,63 +1064,21 @@ function App() {
       const interval = window.setInterval(() => {
         setRecordingDuration(Math.floor((Date.now() - startTime) / 1000))
       }, 500)
-      recordingIntervalRef.current = interval
 
       mediaRecorder.onstop = () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: recorderMimeType || 'audio/webm' })
-        const shouldDiscard = discardRecordingRef.current
-        const shouldAutoSend = autoSendRecordingRef.current
-
-        if (shouldDiscard) {
-          if (recordedAudioUrl) {
-            URL.revokeObjectURL(recordedAudioUrl)
-          }
-          setRecordedAudioBlob(null)
-          setRecordedAudioUrl(null)
-          setVoiceMessageStatus('Ready')
-          setRecordingDuration(0)
-          discardRecordingRef.current = false
-          autoSendRecordingRef.current = false
-          window.clearInterval(interval)
-          recordingIntervalRef.current = null
-          if (recordingStreamRef.current) {
-            recordingStreamRef.current.getTracks().forEach((track) => track.stop())
-            recordingStreamRef.current = null
-          }
-          return
-        }
-
         const audioUrl = URL.createObjectURL(audioBlob)
         setRecordedAudioBlob(audioBlob)
-        setRecordedAudioUrl((currentUrl) => {
-          if (currentUrl) {
-            URL.revokeObjectURL(currentUrl)
-          }
-          return audioUrl
-        })
+        setRecordedAudioUrl(audioUrl)
         setVoiceMessageStatus('Recorded')
-        if (recordingStreamRef.current) {
-          recordingStreamRef.current.getTracks().forEach((track) => track.stop())
-          recordingStreamRef.current = null
-        }
+        stream.getTracks().forEach((track) => track.stop())
         window.clearInterval(interval)
         recordingIntervalRef.current = null
-
-        if (shouldAutoSend) {
-          window.setTimeout(() => {
-            void sendVoiceMessage(audioBlob)
-          }, 0)
-        }
-
-        autoSendRecordingRef.current = false
-        discardRecordingRef.current = false
       }
     } catch (error) {
       console.error(error)
       setRecordingError('Unable to record voice message. Please allow microphone access.')
       setIsRecording(false)
-      setVoiceRecordLocked(false)
-      setVoiceRecordPaused(false)
       setVoiceMessageStatus('Ready')
     }
   }
@@ -1357,81 +1241,19 @@ function App() {
     }
   }
 
-  const handleVoicePressStart = (event) => {
-    if (draft.trim()) {
+  const sendVoiceMessage = async () => {
+    if (!recordedAudioUrl || !recordedAudioBlob) {
       return
     }
 
-    event.preventDefault()
-    voicePointerStartRef.current = { active: true, x: event.clientX, y: event.clientY }
-    if (voiceHoldTimerRef.current) {
-      window.clearTimeout(voiceHoldTimerRef.current)
-    }
-
-    voiceHoldTimerRef.current = window.setTimeout(() => {
-      void startRecording()
-      voiceHoldTimerRef.current = null
-    }, 180)
-  }
-
-  const handleVoicePressMove = (event) => {
-    if (!voicePointerStartRef.current.active || !isRecording || voiceRecordLocked) {
-      return
-    }
-
-    const deltaY = event.clientY - voicePointerStartRef.current.y
-    if (deltaY < -60) {
-      setVoiceRecordLocked(true)
-      setVoiceMessageStatus('Locked')
-    }
-  }
-
-  const handleVoicePressEnd = () => {
-    voicePointerStartRef.current.active = false
-
-    if (voiceHoldTimerRef.current) {
-      window.clearTimeout(voiceHoldTimerRef.current)
-      voiceHoldTimerRef.current = null
-    }
-
-    if (isRecording && !voiceRecordLocked) {
-      stopRecording({ autoSend: true })
-    }
-  }
-
-  const toggleVoicePause = () => {
-    if (!mediaRecorderRef.current) {
-      return
-    }
-
-    if (mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.pause()
-      setVoiceRecordPaused(true)
-      setVoiceMessageStatus('Paused')
-      return
-    }
-
-    if (mediaRecorderRef.current.state === 'paused') {
-      mediaRecorderRef.current.resume()
-      setVoiceRecordPaused(false)
-      setVoiceMessageStatus('Recording')
-    }
-  }
-
-  const sendVoiceMessage = async (audioBlobOverride = recordedAudioBlob) => {
-    if (!audioBlobOverride) {
-      return
-    }
-
-    const audioBlob = audioBlobOverride
-    const isMp4Voice = audioBlob.type.includes('mp4')
+    const isMp4Voice = recordedAudioBlob.type.includes('mp4')
     const attachment = {
       name: `voice-${Date.now()}${isMp4Voice ? '.m4a' : '.webm'}`,
-      type: audioBlob.type,
+      type: recordedAudioBlob.type,
       data: await new Promise((resolve) => {
         const reader = new FileReader()
         reader.onload = () => resolve(reader.result)
-        reader.readAsDataURL(audioBlob)
+        reader.readAsDataURL(recordedAudioBlob)
       }),
     }
 
@@ -1459,13 +1281,8 @@ function App() {
     saveMessages(nextMessages, normalizedRoomId)
     setShowScrollToBottom(false)
     scrollToBottom()
-    if (recordedAudioUrl) {
-      URL.revokeObjectURL(recordedAudioUrl)
-    }
     setRecordedAudioBlob(null)
     setRecordedAudioUrl(null)
-    setVoiceRecordLocked(false)
-    setVoiceRecordPaused(false)
     setVoiceMessageStatus('Ready')
     setRecordingDuration(0)
 
@@ -1724,16 +1541,20 @@ function App() {
       void syncPresenceFromApi(normalizedRoomId)
     }, 5000)
 
-    const refreshRoomState = () => {
-      void syncMessagesFromApi(normalizedRoomId).then((remoteMessages) => {
-        syncIncomingMessages(remoteMessages)
-      })
-      void syncPresenceFromApi(normalizedRoomId)
-    }
-
     const messageSyncPoller = window.setInterval(() => {
-      refreshRoomState()
-    }, 2000)
+      void syncMessagesFromApi(normalizedRoomId).then((remoteMessages) => {
+        if (!remoteMessages.length) {
+          return
+        }
+
+        setMessages((currentMessages) => {
+          const mergedMessages = mergeRemoteMessageSet(currentMessages, remoteMessages)
+          persistMessages(normalizedRoomId, mergedMessages, window.localStorage)
+          return mergedMessages
+        })
+        void markIncomingMessagesRead(remoteMessages)
+      })
+    }, 5000)
 
     void syncPresenceFromApi(normalizedRoomId)
 
@@ -1841,20 +1662,6 @@ function App() {
       return
     }
 
-    const updatePresenceClock = () => setPresenceClock(Date.now())
-    updatePresenceClock()
-    const presenceClockInterval = window.setInterval(updatePresenceClock, 30000)
-
-    return () => {
-      window.clearInterval(presenceClockInterval)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return
-    }
-
     const handlePointerDown = (event) => {
       const isInsideMenu = event.target.closest?.('.message-actions-menu')
       const isInsideMessage = event.target.closest?.('.message-row')
@@ -1886,8 +1693,7 @@ function App() {
 
     const syncViewportHeight = () => {
       const viewportHeight = window.visualViewport?.height || window.innerHeight || 1
-      const vhValue = `${viewportHeight * 0.01}px`
-      document.documentElement.style.setProperty('--app-vh', vhValue)
+      document.documentElement.style.setProperty('--app-vh', `${viewportHeight * 0.01}px`)
     }
 
     const handleViewportResize = () => {
@@ -1896,9 +1702,9 @@ function App() {
         window.setTimeout(() => {
           messageListRef.current?.scrollTo({
             top: messageListRef.current.scrollHeight,
-            behavior: 'instant',
+            behavior: 'smooth',
           })
-        }, 80)
+        }, 100)
       }
     }
 
@@ -1929,38 +1735,21 @@ function App() {
     }
 
     const handleVisibilityChange = () => {
-      if (!firebaseServicesRef.current.db || !firebaseReady) {
-        refreshRoomState()
-      }
-
       if (document.visibilityState === 'visible') {
         void markIncomingMessagesRead()
-      }
-    }
-
-    const handleWindowFocus = () => {
-      if (!firebaseServicesRef.current.db || !firebaseReady) {
-        refreshRoomState()
-      }
-    }
-
-    const handlePageHide = () => {
-      if (!firebaseServicesRef.current.db || !firebaseReady) {
-        refreshRoomState()
+        if (!firebaseServicesRef.current.db || !firebaseReady) {
+          void syncMessagesFromApi(normalizedRoomId)
+        }
       }
     }
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
     window.addEventListener('appinstalled', handleAppInstalled)
-    window.addEventListener('focus', handleWindowFocus)
-    window.addEventListener('pagehide', handlePageHide)
     document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
       window.removeEventListener('appinstalled', handleAppInstalled)
-      window.removeEventListener('focus', handleWindowFocus)
-      window.removeEventListener('pagehide', handlePageHide)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [normalizedRoomId, profile.name])
@@ -2327,6 +2116,16 @@ function App() {
 
         {recordingError ? <p className="call-error">{recordingError}</p> : null}
         {uploadError ? <p className="call-error">{uploadError}</p> : null}
+        {recordedAudioUrl ? (
+          <div className="recording-preview">
+            <p>Recorded voice message ({recordingDuration}s)</p>
+            <audio controls src={recordedAudioUrl} />
+            <div className="recording-actions">
+              <button className="sidebar-btn" type="button" onClick={sendVoiceMessage}>Send voice message</button>
+              <button className="secondary-btn" type="button" onClick={() => { setRecordedAudioUrl(null); setVoiceMessageStatus('Ready'); setRecordingDuration(0) }}>Discard</button>
+            </div>
+          </div>
+        ) : null}
 
         <section
           className="message-list"
@@ -2536,16 +2335,9 @@ function App() {
             </div>
           ) : null}
           {isRecording ? (
-            <div className={`voice-lock-panel ${voiceRecordLocked ? 'locked' : ''}`} aria-live="polite">
-              <div className="voice-lock-hint">
-                <span className="recording-dot" />
-                <span>{voiceRecordPaused ? 'Paused' : voiceRecordLocked ? 'Locked' : 'Recording'} · {recordingDuration}s</span>
-              </div>
-              <div className="voice-lock-actions">
-                <button type="button" className="voice-lock-btn" onClick={toggleVoicePause}>{voiceRecordPaused ? 'Resume' : 'Pause'}</button>
-                <button type="button" className="voice-lock-btn danger" onClick={discardVoiceRecording}>Delete</button>
-                <button type="button" className="voice-lock-btn success" onClick={() => stopRecording({ autoSend: true })}>Send</button>
-              </div>
+            <div className="recording-indicator" aria-live="polite">
+              <span className="recording-dot" />
+              <span>Recording voice message · {recordingDuration}s</span>
             </div>
           ) : null}
           <input
@@ -2575,7 +2367,7 @@ function App() {
               }
             }}
           />
-          <div className={`composer-input-row ${draft.trim() ? 'has-text' : ''}`}>
+          <div className="composer-input-row">
             <button className="composer-action" type="button" onClick={() => galleryInputRef.current?.click()} aria-label="Attach file">
               <IconUpload />
             </button>
@@ -2639,26 +2431,21 @@ function App() {
               spellCheck="false"
               inputMode="text"
             />
+            <button className="composer-action" type="button" onClick={() => cameraInputRef.current?.click()} aria-label="Take photo">
+              <IconCamera />
+            </button>
+            <button
+              className={`composer-action ${isRecording ? 'recording' : ''}`}
+              type="button"
+              onClick={startRecording}
+              aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+            >
+              <IconMic />
+            </button>
             {draft.trim() ? (
               <button className="composer-send-btn" type="submit" aria-label="Send message"><IconSend /></button>
             ) : (
-              <>
-                <button className="composer-action" type="button" onClick={() => cameraInputRef.current?.click()} aria-label="Take photo">
-                  <IconCamera />
-                </button>
-                <button
-                  className={`composer-action ${isRecording ? 'recording' : ''}`}
-                  type="button"
-                  onPointerDown={handleVoicePressStart}
-                  onPointerMove={handleVoicePressMove}
-                  onPointerUp={handleVoicePressEnd}
-                  onPointerLeave={handleVoicePressEnd}
-                  onPointerCancel={handleVoicePressEnd}
-                  aria-label={isRecording ? 'Stop recording' : 'Start recording'}
-                >
-                  <IconMic />
-                </button>
-              </>
+              <button className="composer-send-btn muted" type="button" aria-label="Add message" onClick={() => messageInputRef.current?.focus()}><IconPencil /></button>
             )}
           </div>
         </form>
