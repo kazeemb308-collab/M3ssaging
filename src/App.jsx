@@ -378,14 +378,29 @@ function App() {
     }
 
     const updatedMessage = toggleMessageReaction(message, emoji, profile.name)
-    const nextMessages = updateMessageByIdentity(messages, message, { reactions: updatedMessage.reactions })
-    setMessages(nextMessages)
+
+    setMessages((currentMessages) => {
+      const nextMessages = Array.isArray(currentMessages)
+        ? updateMessageByIdentity(currentMessages, message, { reactions: updatedMessage.reactions })
+        : []
+
+      if (typeof window !== 'undefined') {
+        persistMessages(normalizedRoomId, nextMessages, window.localStorage)
+      }
+
+      if (channelRef.current) {
+        channelRef.current.postMessage({ type: 'message-sync', roomId: normalizedRoomId, messages: nextMessages })
+      }
+
+      window.requestAnimationFrame(() => {
+        scrollToBottom()
+      })
+
+      return nextMessages
+    })
+
     setReactionMenuMessage(null)
     setActiveMessageAction(null)
-
-    if (typeof window !== 'undefined') {
-      persistMessages(normalizedRoomId, nextMessages, window.localStorage)
-    }
 
     try {
       await fetch('/api/messages', {
@@ -1645,13 +1660,15 @@ function App() {
   }, [profile.name, normalizedRoomId])
 
   useEffect(() => {
-    if (!messageListRef.current) {
+    if (!messageListRef.current || showScrollToBottom) {
       return
     }
 
-    if (!showScrollToBottom) {
-      messageListRef.current.scrollTo({
-        top: messageListRef.current.scrollHeight,
+    const scrollContainer = messageListRef.current
+    const atBottom = scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight <= 60
+    if (atBottom) {
+      scrollContainer.scrollTo({
+        top: scrollContainer.scrollHeight,
         behavior: 'smooth',
       })
     }
