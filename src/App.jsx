@@ -1673,6 +1673,9 @@ function App() {
         if (messageSyncPoller) {
           window.clearInterval(messageSyncPoller)
         }
+        if (backgroundRefreshPoller) {
+          window.clearInterval(backgroundRefreshPoller)
+        }
         channelRef.current?.close()
         channelRef.current = null
       }
@@ -1728,7 +1731,17 @@ function App() {
       void syncMessagesFromApi(normalizedRoomId).then((remoteMessages) => {
         syncIncomingMessages(remoteMessages)
       })
+      void syncPresenceFromApi(normalizedRoomId)
     }, 5000)
+
+    const backgroundRefreshPoller = window.setInterval(() => {
+      void syncMessagesFromApi(normalizedRoomId).then((remoteMessages) => {
+        if (remoteMessages.length) {
+          syncIncomingMessages(remoteMessages)
+        }
+      })
+      void syncPresenceFromApi(normalizedRoomId)
+    }, 15000)
 
     void syncPresenceFromApi(normalizedRoomId)
 
@@ -1881,7 +1894,14 @@ function App() {
 
     const syncViewportHeight = () => {
       const viewportHeight = window.visualViewport?.height || window.innerHeight || 1
-      document.documentElement.style.setProperty('--app-vh', `${viewportHeight * 0.01}px`)
+      const vhValue = `${viewportHeight * 0.01}px`
+      document.documentElement.style.setProperty('--app-vh', vhValue)
+      document.body.style.height = `${viewportHeight}px`
+      document.body.style.minHeight = `${viewportHeight}px`
+      if (document.getElementById('root')) {
+        document.getElementById('root').style.height = `${viewportHeight}px`
+        document.getElementById('root').style.minHeight = `${viewportHeight}px`
+      }
     }
 
     const handleViewportResize = () => {
@@ -1890,9 +1910,9 @@ function App() {
         window.setTimeout(() => {
           messageListRef.current?.scrollTo({
             top: messageListRef.current.scrollHeight,
-            behavior: 'smooth',
+            behavior: 'instant',
           })
-        }, 100)
+        }, 80)
       }
     }
 
@@ -1923,13 +1943,14 @@ function App() {
     }
 
     const handleVisibilityChange = () => {
+      if (!firebaseServicesRef.current.db || !firebaseReady) {
+        void syncMessagesFromApi(normalizedRoomId).then((remoteMessages) => {
+          syncIncomingMessages(remoteMessages)
+        })
+      }
+
       if (document.visibilityState === 'visible') {
         void markIncomingMessagesRead()
-        if (!firebaseServicesRef.current.db || !firebaseReady) {
-          void syncMessagesFromApi(normalizedRoomId).then((remoteMessages) => {
-            syncIncomingMessages(remoteMessages)
-          })
-        }
       }
     }
 
@@ -1941,15 +1962,25 @@ function App() {
       }
     }
 
+    const handlePageHide = () => {
+      if (!firebaseServicesRef.current.db || !firebaseReady) {
+        void syncMessagesFromApi(normalizedRoomId).then((remoteMessages) => {
+          syncIncomingMessages(remoteMessages)
+        })
+      }
+    }
+
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
     window.addEventListener('appinstalled', handleAppInstalled)
     window.addEventListener('focus', handleWindowFocus)
+    window.addEventListener('pagehide', handlePageHide)
     document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
       window.removeEventListener('appinstalled', handleAppInstalled)
       window.removeEventListener('focus', handleWindowFocus)
+      window.removeEventListener('pagehide', handlePageHide)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [normalizedRoomId, profile.name])
