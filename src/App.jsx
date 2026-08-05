@@ -380,9 +380,16 @@ function App() {
     const updatedMessage = toggleMessageReaction(message, emoji, profile.name)
 
     setMessages((currentMessages) => {
-      const baseMessages = Array.isArray(currentMessages) && currentMessages.length > 0 ? currentMessages : messages
-      const nextMessages = updateMessageByIdentity(baseMessages, message, { reactions: updatedMessage.reactions })
-      const safeMessages = Array.isArray(nextMessages) && nextMessages.length > 0 ? nextMessages : baseMessages
+      const previousMessages = Array.isArray(currentMessages) && currentMessages.length > 0
+        ? currentMessages
+        : Array.isArray(messages) && messages.length > 0
+          ? messages
+          : []
+
+      const nextMessages = updateMessageByIdentity(previousMessages, message, { reactions: updatedMessage.reactions })
+      const safeMessages = Array.isArray(nextMessages) && nextMessages.length > 0
+        ? nextMessages
+        : previousMessages
 
       if (typeof window !== 'undefined') {
         persistMessages(normalizedRoomId, safeMessages, window.localStorage)
