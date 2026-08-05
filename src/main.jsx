@@ -5,6 +5,17 @@ import { registerSW } from 'virtual:pwa-register'
 
 const AppRouter = lazy(() => import('./AppRouter.jsx').then((module) => ({ default: module.AppRouter })))
 
+async function unregisterStaleServiceWorkers() {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+    return
+  }
+
+  const registrations = await navigator.serviceWorker.getRegistrations()
+  await Promise.all(registrations.map((registration) => registration.unregister()))
+}
+
+void unregisterStaleServiceWorkers()
+
 const updateSW = registerSW({
   immediate: false,
 })
