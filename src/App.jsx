@@ -379,10 +379,9 @@ function App() {
 
     const updatedMessage = toggleMessageReaction(message, emoji, profile.name)
 
-    setMessages((currentMessages) => {
-      const nextMessages = Array.isArray(currentMessages)
-        ? updateMessageByIdentity(currentMessages, message, { reactions: updatedMessage.reactions })
-        : []
+    setMessages((currentMessages = []) => {
+      const safeMessages = Array.isArray(currentMessages) ? currentMessages : []
+      const nextMessages = updateMessageByIdentity(safeMessages, updatedMessage, { reactions: updatedMessage.reactions })
 
       if (typeof window !== 'undefined') {
         persistMessages(normalizedRoomId, nextMessages, window.localStorage)
@@ -2150,13 +2149,14 @@ function App() {
             setShowScrollToBottom(distanceFromBottom > 120)
           }}
         >
-          {messages.map((message) => {
+          {messages.filter(Boolean).map((message, index) => {
             const isMine = message.senderId === profile.name
             const isSystem = message.senderId === 'system'
             const messageStatus = getMessageStatus(message)
+            const messageKey = message.id || message.clientId || message.tempId || message.localId || `message-${index}`
             return (
               <article
-                key={message.id}
+                key={messageKey}
                 className={`message-row ${isMine ? 'mine' : 'their'}`}
                 onMouseDown={() => startMessageHold(message)}
                 onMouseUp={clearMessageHoldTimer}
@@ -2238,7 +2238,7 @@ function App() {
                       <div className="message-reaction-summary" aria-label="Message reactions">
                         {getMessageReactionSummary(message, profile.name).map((reaction) => (
                           <button
-                            key={`${message.id || message.clientId || 'message'}-${reaction.emoji}`}
+                            key={`${messageKey}-${reaction.emoji}`}
                             type="button"
                             className={`reaction-chip ${reaction.active ? 'active' : ''}`}
                             onClick={() => handleReaction(message, reaction.emoji)}
@@ -2252,7 +2252,7 @@ function App() {
                     {reactionMenuMessage && (reactionMenuMessage.id === message.id || reactionMenuMessage.clientId === message.clientId) ? (
                       <div className="reaction-picker" role="menu" aria-label="Message reactions">
                         {reactionEmojis.map((emoji) => (
-                          <button key={`${message.id || message.clientId || 'reaction'}-${emoji}`} type="button" className="reaction-picker-btn" onClick={() => handleReaction(message, emoji)}>{emoji}</button>
+                          <button key={`${messageKey}-picker-${emoji}`} type="button" className="reaction-picker-btn" onClick={() => handleReaction(message, emoji)}>{emoji}</button>
                         ))}
                       </div>
                     ) : null}
