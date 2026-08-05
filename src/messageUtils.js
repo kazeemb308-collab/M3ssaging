@@ -172,14 +172,33 @@ export function toggleMessageReaction(message = {}, emoji, senderId) {
   }
 
   const existingReactions = Array.isArray(message.reactions) ? message.reactions : []
+  const alreadyReacted = existingReactions.some((reaction) => reaction?.emoji === emoji && reaction?.senderId === senderId)
+
   const nextReactions = existingReactions.filter((reaction) => !(reaction?.emoji === emoji && reaction?.senderId === senderId))
 
-  nextReactions.push({ emoji, senderId })
+  if (!alreadyReacted) {
+    nextReactions.push({ emoji, senderId })
+  }
 
   return {
     ...message,
     reactions: nextReactions,
   }
+}
+
+export function getMessageReactionSummary(message = {}, currentUserId) {
+  const reactions = Array.isArray(message?.reactions) ? message.reactions : []
+  const summaryMap = new Map()
+
+  for (const reaction of reactions) {
+    const emoji = reaction?.emoji || 'reaction'
+    const current = summaryMap.get(emoji) || { emoji, count: 0, active: false }
+    current.count += 1
+    current.active = current.active || reaction?.senderId === currentUserId
+    summaryMap.set(emoji, current)
+  }
+
+  return [...summaryMap.values()].sort((left, right) => right.count - left.count || left.emoji.localeCompare(right.emoji))
 }
 
 export function getMessageStatus(message = {}) {

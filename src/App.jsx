@@ -406,13 +406,18 @@ function App() {
   }
 
   const startMessageHold = (message) => {
-    if (!message || message.senderId !== profile.name) {
+    if (!message) {
       return
     }
 
     clearMessageHoldTimer()
     messageHoldTimerRef.current = window.setTimeout(() => {
-      setActiveMessageAction(message)
+      setReactionMenuMessage(message)
+      if (message.senderId === profile.name) {
+        setActiveMessageAction(message)
+      } else {
+        setActiveMessageAction(null)
+      }
     }, 450)
   }
 
@@ -2221,20 +2226,8 @@ function App() {
                       )
                     ) : null}
                     {Array.isArray(message.reactions) && message.reactions.length > 0 ? (
-                      <div className="reaction-row">
-                        {Array.from(new Map(
-                          message.reactions.reduce((accumulator, reaction) => {
-                            const key = reaction?.emoji || 'reaction'
-                            const match = accumulator.get(key)
-                            if (match) {
-                              match.count += 1
-                              match.active = match.active || reaction.senderId === profile.name
-                            } else {
-                              accumulator.set(key, { emoji: key, count: 1, active: reaction.senderId === profile.name })
-                            }
-                            return accumulator
-                          }, new Map()).values())
-                        ).map((reaction) => (
+                      <div className="message-reaction-summary" aria-label="Message reactions">
+                        {getMessageReactionSummary(message, profile.name).map((reaction) => (
                           <button
                             key={`${message.id || message.clientId || 'message'}-${reaction.emoji}`}
                             type="button"
@@ -2245,11 +2238,8 @@ function App() {
                             <small>{reaction.count}</small>
                           </button>
                         ))}
-                        <button className="reaction-add-btn" type="button" onClick={() => setReactionMenuMessage(message)} aria-label="Add reaction">🙂</button>
                       </div>
-                    ) : (
-                      <button className="reaction-add-btn" type="button" onClick={() => setReactionMenuMessage(message)} aria-label="Add reaction">🙂</button>
-                    )}
+                    ) : null}
                     {reactionMenuMessage && (reactionMenuMessage.id === message.id || reactionMenuMessage.clientId === message.clientId) ? (
                       <div className="reaction-picker" role="menu" aria-label="Message reactions">
                         {reactionEmojis.map((emoji) => (
@@ -2264,13 +2254,6 @@ function App() {
                       </div>
                       {isMine ? (
                         <div className="mine-message-actions">
-                          {activeMessageAction?.id === message.id || activeMessageAction?.clientId === message.clientId ? (
-                            <div className="message-actions-menu">
-                              <button type="button" onClick={(event) => { event.stopPropagation(); beginEditMessage(message) }}>Edit</button>
-                              <button type="button" onClick={(event) => { event.stopPropagation(); setReactionMenuMessage(message) }}>React</button>
-                              <button type="button" onClick={(event) => { event.stopPropagation(); deleteMessage(message) }}>Delete</button>
-                            </div>
-                          ) : null}
                           <div
                             className={`message-status ${messageStatus}`}
                             aria-label={messageStatus === 'seen' ? 'Seen by partner' : messageStatus === 'delivered' ? 'Delivered' : messageStatus === 'sending' ? 'Sending' : messageStatus === 'failed' ? 'Message not sent' : 'Sent'}
@@ -2281,6 +2264,12 @@ function App() {
                         </div>
                       ) : null}
                     </div>
+                    {isMine && (activeMessageAction?.id === message.id || activeMessageAction?.clientId === message.clientId) ? (
+                      <div className="message-actions-menu" onClick={(event) => event.stopPropagation()}>
+                        <button type="button" onClick={(event) => { event.stopPropagation(); beginEditMessage(message) }}>Edit</button>
+                        <button type="button" onClick={(event) => { event.stopPropagation(); deleteMessage(message) }}>Delete</button>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </article>

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyDeliveredReceipts, applyReadReceipts, getMessageStatus, isPresenceFresh, mergeMessages, mergeRemoteMessageSet, persistMessages, retryAsync, toggleMessageReaction } from './messageUtils.js'
+import { applyDeliveredReceipts, applyReadReceipts, getMessageReactionSummary, getMessageStatus, isPresenceFresh, mergeMessages, mergeRemoteMessageSet, persistMessages, retryAsync, toggleMessageReaction } from './messageUtils.js'
 
 test('deduplicates optimistic messages when the server resolves them with the same clientId', () => {
   const optimisticMessage = {
@@ -222,6 +222,24 @@ test('adds and removes a user reaction without duplicating it', () => {
 
   const withoutReaction = toggleMessageReaction(withReaction, '👍', 'me')
   assert.equal(withoutReaction.reactions.some((reaction) => reaction.emoji === '👍' && reaction.senderId === 'me'), false)
+})
+
+test('summarizes reactions for the WhatsApp-style picker without rendering them inline', () => {
+  const message = {
+    id: 'msg-1',
+    reactions: [
+      { emoji: '👍', senderId: 'me' },
+      { emoji: '👍', senderId: 'them' },
+      { emoji: '❤️', senderId: 'them' },
+    ],
+  }
+
+  const summary = getMessageReactionSummary(message, 'me')
+
+  assert.deepEqual(summary, [
+    { emoji: '👍', count: 2, active: true },
+    { emoji: '❤️', count: 1, active: false },
+  ])
 })
 
 test('retries transient async failures and eventually succeeds', async () => {
