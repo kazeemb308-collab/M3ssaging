@@ -283,7 +283,8 @@ app.post('/api/messages', (req, res) => {
       const nextMessages = applyDeliveredReceipts(existingMessages, deliveredMessageIds, delivered)
       saveRoomMessages(normalizedRoomId, nextMessages)
       emitRoomEvent(normalizedRoomId, { type: 'delivered-receipt', roomId: normalizedRoomId, senderId, messageIds: deliveredMessageIds })
-      res.status(200).json(nextMessages)
+      const changedMessages = nextMessages.filter((message) => messageMatchesIdentity(message, deliveredMessageIds))
+      res.status(200).json(changedMessages)
       return
     }
 
@@ -291,7 +292,8 @@ app.post('/api/messages', (req, res) => {
       const nextMessages = applyReadReceipts(existingMessages, readMessageIds, read)
       saveRoomMessages(normalizedRoomId, nextMessages)
       emitRoomEvent(normalizedRoomId, { type: 'read-receipt', roomId: normalizedRoomId, senderId, messageIds: readMessageIds })
-      res.status(200).json(nextMessages)
+      const changedMessages = nextMessages.filter((message) => messageMatchesIdentity(message, readMessageIds))
+      res.status(200).json(changedMessages)
       return
     }
 
@@ -332,7 +334,7 @@ app.post('/api/messages', (req, res) => {
 
     saveRoomMessages(normalizedRoomId, nextMessages)
     emitRoomEvent(normalizedRoomId, { type: 'message-sync', roomId: normalizedRoomId, messages: nextMessages })
-    res.status(200).json(nextMessages)
+    res.status(200).json([nextMessage])
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'server error' })

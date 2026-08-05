@@ -190,14 +190,16 @@ export default async function handler(req, res) {
     if (Array.isArray(deliveredMessageIds)) {
       const nextMessages = applyDeliveredReceipts(existingMessages, deliveredMessageIds, delivered)
       saveRoomMessages(normalizedRoomId, nextMessages)
-      res.status(200).json(nextMessages)
+      const changedMessages = nextMessages.filter((message) => messageMatchesIdentity(message, deliveredMessageIds))
+      res.status(200).json(changedMessages)
       return
     }
 
     if (Array.isArray(readMessageIds)) {
       const nextMessages = applyReadReceipts(existingMessages, readMessageIds, read)
       saveRoomMessages(normalizedRoomId, nextMessages)
-      res.status(200).json(nextMessages)
+      const changedMessages = nextMessages.filter((message) => messageMatchesIdentity(message, readMessageIds))
+      res.status(200).json(changedMessages)
       return
     }
 
@@ -237,7 +239,7 @@ export default async function handler(req, res) {
     }
 
     saveRoomMessages(normalizedRoomId, nextMessages)
-    res.status(200).json(nextMessages)
+    res.status(200).json([nextMessage])
     return
   }
 
