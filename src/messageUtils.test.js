@@ -253,6 +253,26 @@ test('preserves the current conversation when a reaction target cannot be matche
   assert.deepEqual(result, currentMessages)
 })
 
+test('keeps the most recent reaction state instead of clearing it with a stale empty payload', () => {
+  const currentMessages = [{
+    id: 'msg-1',
+    text: 'Hello',
+    reactions: [{ emoji: '👍', senderId: 'me' }],
+    updatedAt: 200,
+  }]
+
+  const staleIncoming = [{
+    id: 'msg-1',
+    text: 'Hello',
+    reactions: [],
+    updatedAt: 100,
+  }]
+
+  const result = mergeMessages(currentMessages, staleIncoming)
+
+  assert.deepEqual(result[0].reactions, [{ emoji: '👍', senderId: 'me' }])
+})
+
 test('retries transient async failures and eventually succeeds', async () => {
   let attempts = 0
   const result = await retryAsync(async () => {

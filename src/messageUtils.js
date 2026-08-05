@@ -6,7 +6,7 @@ export function sortMessages(messages = []) {
   })
 }
 
-function shouldPreserveExistingField(key, incomingValue, existingValue) {
+function shouldPreserveExistingField(key, incomingValue, existingValue, incomingMessage = {}, existingMessage = {}) {
   if (key === 'replyTo') {
     return incomingValue == null && existingValue != null
   }
@@ -19,6 +19,25 @@ function shouldPreserveExistingField(key, incomingValue, existingValue) {
   if (key === 'read' || key === 'delivered') {
     return (incomingValue == null && existingValue != null)
       || (incomingValue === false && Boolean(existingValue))
+  }
+
+  if (key === 'updatedAt') {
+    const incomingTimestamp = Number(incomingMessage?.updatedAt ?? incomingMessage?.timestamp ?? 0)
+    const existingTimestamp = Number(existingMessage?.updatedAt ?? existingMessage?.timestamp ?? 0)
+    if (Number.isFinite(incomingTimestamp) && Number.isFinite(existingTimestamp) && incomingTimestamp <= existingTimestamp) {
+      return true
+    }
+  }
+
+  if (key === 'reactions') {
+    const incomingIsEmpty = Array.isArray(incomingValue) && incomingValue.length === 0
+    const existingHasReactions = Array.isArray(existingValue) && existingValue.length > 0
+    const incomingTimestamp = Number(incomingMessage?.updatedAt ?? incomingMessage?.timestamp ?? 0)
+    const existingTimestamp = Number(existingMessage?.updatedAt ?? existingMessage?.timestamp ?? 0)
+
+    if (incomingIsEmpty && existingHasReactions && Number.isFinite(incomingTimestamp) && Number.isFinite(existingTimestamp) && incomingTimestamp <= existingTimestamp) {
+      return true
+    }
   }
 
   return false
@@ -52,7 +71,7 @@ export function mergeMessages(existingMessages = [], incomingMessages = []) {
     if (typeof currentIndex === 'number') {
       const existingMessage = nextMessages[currentIndex]
       nextMessages[currentIndex] = Object.entries(message).reduce((accumulator, [field, value]) => {
-        if (shouldPreserveExistingField(field, value, existingMessage?.[field])) {
+        if (shouldPreserveExistingField(field, value, existingMessage?.[field], message, existingMessage)) {
           accumulator[field] = existingMessage[field]
           return accumulator
         }

@@ -824,6 +824,19 @@ function App() {
     await sendReadReceipt(receiptTargets)
   }
 
+  const syncIncomingMessages = (incomingMessages) => {
+    if (!Array.isArray(incomingMessages) || !incomingMessages.length) {
+      return
+    }
+
+    setMessages((currentMessages) => {
+      const mergedMessages = mergeRemoteMessageSet(currentMessages, incomingMessages)
+      persistMessages(normalizedRoomId, mergedMessages, window.localStorage)
+      return mergedMessages
+    })
+    void markIncomingMessagesRead(incomingMessages)
+  }
+
   const sendTypingUpdate = (isTyping) => {
     if (!channelRef.current || !profile.name) {
       return
@@ -1568,16 +1581,7 @@ function App() {
 
     const messageSyncPoller = window.setInterval(() => {
       void syncMessagesFromApi(normalizedRoomId).then((remoteMessages) => {
-        if (!remoteMessages.length) {
-          return
-        }
-
-        setMessages((currentMessages) => {
-          const mergedMessages = mergeRemoteMessageSet(currentMessages, remoteMessages)
-          persistMessages(normalizedRoomId, mergedMessages, window.localStorage)
-          return mergedMessages
-        })
-        void markIncomingMessagesRead(remoteMessages)
+        syncIncomingMessages(remoteMessages)
       })
     }, 5000)
 
@@ -1763,18 +1767,30 @@ function App() {
       if (document.visibilityState === 'visible') {
         void markIncomingMessagesRead()
         if (!firebaseServicesRef.current.db || !firebaseReady) {
-          void syncMessagesFromApi(normalizedRoomId)
+          void syncMessagesFromApi(normalizedRoomId).then((remoteMessages) => {
+            syncIncomingMessages(remoteMessages)
+          })
         }
+      }
+    }
+
+    const handleWindowFocus = () => {
+      if (!firebaseServicesRef.current.db || !firebaseReady) {
+        void syncMessagesFromApi(normalizedRoomId).then((remoteMessages) => {
+          syncIncomingMessages(remoteMessages)
+        })
       }
     }
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
     window.addEventListener('appinstalled', handleAppInstalled)
+    window.addEventListener('focus', handleWindowFocus)
     document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
       window.removeEventListener('appinstalled', handleAppInstalled)
+      window.removeEventListener('focus', handleWindowFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [normalizedRoomId, profile.name])
