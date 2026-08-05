@@ -164,6 +164,8 @@ function App() {
   const [recordedAudioUrl, setRecordedAudioUrl] = useState(null)
   const [recordedAudioBlob, setRecordedAudioBlob] = useState(null)
   const [recordingDuration, setRecordingDuration] = useState(0)
+  const [voiceRecordLocked, setVoiceRecordLocked] = useState(false)
+  const [voiceRecordPaused, setVoiceRecordPaused] = useState(false)
   const [lightboxImage, setLightboxImage] = useState(null)
   const [pendingAttachment, setPendingAttachment] = useState(null)
   const [replyToMessage, setReplyToMessage] = useState(null)
@@ -186,7 +188,12 @@ function App() {
   const messageListRef = useRef(null)
   const messageHoldTimerRef = useRef(null)
   const mediaRecorderRef = useRef(null)
+  const recordingStreamRef = useRef(null)
   const recordingIntervalRef = useRef(null)
+  const voiceHoldTimerRef = useRef(null)
+  const voicePointerStartRef = useRef({ active: false, x: 0, y: 0 })
+  const autoSendRecordingRef = useRef(false)
+  const discardRecordingRef = useRef(false)
   const prevMessageRef = useRef(null)
   const initialMessagesLoadedRef = useRef(false)
   const audioChunksRef = useRef([])
@@ -1042,12 +1049,45 @@ function App() {
     return 'audio/webm'
   }
 
-  const stopRecording = () => {
+  const stopRecording = ({ autoSend = false, discard = false } = {}) => {
+    if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') {
+      return
+    }
+
+    autoSendRecordingRef.current = autoSend
+    discardRecordingRef.current = discard
+    mediaRecorderRef.current.stop()
+    setIsRecording(false)
+    setVoiceRecordLocked(false)
+    setVoiceRecordPaused(false)
+    setVoiceMessageStatus(discard ? 'Discarded' : autoSend ? 'Sending' : 'Processing')
+  }
+
+  const discardVoiceRecording = () => {
+    discardRecordingRef.current = true
+    autoSendRecordingRef.current = false
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop()
-      setIsRecording(false)
-      setVoiceMessageStatus('Processing')
     }
+
+    if (recordingStreamRef.current) {
+      recordingStreamRef.current.getTracks().forEach((track) => track.stop())
+      recordingStreamRef.current = null
+    }
+
+    if (recordedAudioUrl) {
+      URL.revokeObjectURL(recordedAudioUrl)
+    }
+
+    setIsRecording(false)
+    setVoiceRecordLocked(false)
+    setVoiceRecordPaused(false)
+    setRecordedAudioUrl(null)
+    setRecordedAudioBlob(null)
+    setRecordingDuration(0)
+    setVoiceMessageStatus('Ready')
+    setRecordingError('')
   }
 
   const promptInstall = async () => {
@@ -1067,17 +1107,22 @@ function App() {
     requestNotificationPermission()
     setRecordingError('')
     if (isRecording) {
-      stopRecording()
+      stopRecording({ autoSend: false })
       return
     }
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      recordingStreamRef.current = stream
       const recorderMimeType = getRecorderMimeType()
       const mediaRecorder = new window.MediaRecorder(stream, recorderMimeType ? { mimeType: recorderMimeType } : undefined)
       mediaRecorderRef.current = mediaRecorder
       audioChunksRef.current = []
+      autoSendRecordingRef.current = false
+      discardRecordingRef.current = false
       setIsRecording(true)
+      setVoiceRecordLocked(false)
+      setVoiceRecordPaused(false)
       setVoiceMessageStatus('Recording')
       setRecordedAudioUrl(null)
       setRecordingDuration(0)
@@ -1093,21 +1138,63 @@ function App() {
       const interval = window.setInterval(() => {
         setRecordingDuration(Math.floor((Date.now() - startTime) / 1000))
       }, 500)
+      recordingIntervalRef.current = interval
 
       mediaRecorder.onstop = () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: recorderMimeType || 'audio/webm' })
+        const shouldDiscard = discardRecordingRef.current
+        const shouldAutoSend = autoSendRecordingRef.current
+
+        if (shouldDiscard) {
+          if (recordedAudioUrl) {
+            URL.revokeObjectURL(recordedAudioUrl)
+          }
+          setRecordedAudioBlob(null)
+          setRecordedAudioUrl(null)
+          setVoiceMessageStatus('Ready')
+          setRecordingDuration(0)
+          discardRecordingRef.current = false
+          autoSendRecordingRef.current = false
+          window.clearInterval(interval)
+          recordingIntervalRef.current = null
+          if (recordingStreamRef.current) {
+            recordingStreamRef.current.getTracks().forEach((track) => track.stop())
+            recordingStreamRef.current = null
+          }
+          return
+        }
+
         const audioUrl = URL.createObjectURL(audioBlob)
         setRecordedAudioBlob(audioBlob)
-        setRecordedAudioUrl(audioUrl)
+        setRecordedAudioUrl((currentUrl) => {
+          if (currentUrl) {
+            URL.revokeObjectURL(currentUrl)
+          }
+          return audioUrl
+        })
         setVoiceMessageStatus('Recorded')
-        stream.getTracks().forEach((track) => track.stop())
+        if (recordingStreamRef.current) {
+          recordingStreamRef.current.getTracks().forEach((track) => track.stop())
+          recordingStreamRef.current = null
+        }
         window.clearInterval(interval)
         recordingIntervalRef.current = null
+
+        if (shouldAutoSend) {
+          window.setTimeout(() => {
+            void sendVoiceMessage(audioBlob)
+          }, 0)
+        }
+
+        autoSendRecordingRef.current = false
+        discardRecordingRef.current = false
       }
     } catch (error) {
       console.error(error)
       setRecordingError('Unable to record voice message. Please allow microphone access.')
       setIsRecording(false)
+      setVoiceRecordLocked(false)
+      setVoiceRecordPaused(false)
       setVoiceMessageStatus('Ready')
     }
   }
@@ -1270,19 +1357,81 @@ function App() {
     }
   }
 
-  const sendVoiceMessage = async () => {
-    if (!recordedAudioUrl || !recordedAudioBlob) {
+  const handleVoicePressStart = (event) => {
+    if (draft.trim()) {
       return
     }
 
-    const isMp4Voice = recordedAudioBlob.type.includes('mp4')
+    event.preventDefault()
+    voicePointerStartRef.current = { active: true, x: event.clientX, y: event.clientY }
+    if (voiceHoldTimerRef.current) {
+      window.clearTimeout(voiceHoldTimerRef.current)
+    }
+
+    voiceHoldTimerRef.current = window.setTimeout(() => {
+      void startRecording()
+      voiceHoldTimerRef.current = null
+    }, 180)
+  }
+
+  const handleVoicePressMove = (event) => {
+    if (!voicePointerStartRef.current.active || !isRecording || voiceRecordLocked) {
+      return
+    }
+
+    const deltaY = event.clientY - voicePointerStartRef.current.y
+    if (deltaY < -60) {
+      setVoiceRecordLocked(true)
+      setVoiceMessageStatus('Locked')
+    }
+  }
+
+  const handleVoicePressEnd = () => {
+    voicePointerStartRef.current.active = false
+
+    if (voiceHoldTimerRef.current) {
+      window.clearTimeout(voiceHoldTimerRef.current)
+      voiceHoldTimerRef.current = null
+    }
+
+    if (isRecording && !voiceRecordLocked) {
+      stopRecording({ autoSend: true })
+    }
+  }
+
+  const toggleVoicePause = () => {
+    if (!mediaRecorderRef.current) {
+      return
+    }
+
+    if (mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.pause()
+      setVoiceRecordPaused(true)
+      setVoiceMessageStatus('Paused')
+      return
+    }
+
+    if (mediaRecorderRef.current.state === 'paused') {
+      mediaRecorderRef.current.resume()
+      setVoiceRecordPaused(false)
+      setVoiceMessageStatus('Recording')
+    }
+  }
+
+  const sendVoiceMessage = async (audioBlobOverride = recordedAudioBlob) => {
+    if (!audioBlobOverride) {
+      return
+    }
+
+    const audioBlob = audioBlobOverride
+    const isMp4Voice = audioBlob.type.includes('mp4')
     const attachment = {
       name: `voice-${Date.now()}${isMp4Voice ? '.m4a' : '.webm'}`,
-      type: recordedAudioBlob.type,
+      type: audioBlob.type,
       data: await new Promise((resolve) => {
         const reader = new FileReader()
         reader.onload = () => resolve(reader.result)
-        reader.readAsDataURL(recordedAudioBlob)
+        reader.readAsDataURL(audioBlob)
       }),
     }
 
@@ -1310,8 +1459,13 @@ function App() {
     saveMessages(nextMessages, normalizedRoomId)
     setShowScrollToBottom(false)
     scrollToBottom()
+    if (recordedAudioUrl) {
+      URL.revokeObjectURL(recordedAudioUrl)
+    }
     setRecordedAudioBlob(null)
     setRecordedAudioUrl(null)
+    setVoiceRecordLocked(false)
+    setVoiceRecordPaused(false)
     setVoiceMessageStatus('Ready')
     setRecordingDuration(0)
 
@@ -2162,16 +2316,6 @@ function App() {
 
         {recordingError ? <p className="call-error">{recordingError}</p> : null}
         {uploadError ? <p className="call-error">{uploadError}</p> : null}
-        {recordedAudioUrl ? (
-          <div className="recording-preview">
-            <p>Recorded voice message ({recordingDuration}s)</p>
-            <audio controls src={recordedAudioUrl} />
-            <div className="recording-actions">
-              <button className="sidebar-btn" type="button" onClick={sendVoiceMessage}>Send voice message</button>
-              <button className="secondary-btn" type="button" onClick={() => { setRecordedAudioUrl(null); setVoiceMessageStatus('Ready'); setRecordingDuration(0) }}>Discard</button>
-            </div>
-          </div>
-        ) : null}
 
         <section
           className="message-list"
@@ -2381,9 +2525,16 @@ function App() {
             </div>
           ) : null}
           {isRecording ? (
-            <div className="recording-indicator" aria-live="polite">
-              <span className="recording-dot" />
-              <span>Recording voice message · {recordingDuration}s</span>
+            <div className={`voice-lock-panel ${voiceRecordLocked ? 'locked' : ''}`} aria-live="polite">
+              <div className="voice-lock-hint">
+                <span className="recording-dot" />
+                <span>{voiceRecordPaused ? 'Paused' : voiceRecordLocked ? 'Locked' : 'Recording'} · {recordingDuration}s</span>
+              </div>
+              <div className="voice-lock-actions">
+                <button type="button" className="voice-lock-btn" onClick={toggleVoicePause}>{voiceRecordPaused ? 'Resume' : 'Pause'}</button>
+                <button type="button" className="voice-lock-btn danger" onClick={discardVoiceRecording}>Delete</button>
+                <button type="button" className="voice-lock-btn success" onClick={() => stopRecording({ autoSend: true })}>Send</button>
+              </div>
             </div>
           ) : null}
           <input
@@ -2487,7 +2638,11 @@ function App() {
                 <button
                   className={`composer-action ${isRecording ? 'recording' : ''}`}
                   type="button"
-                  onClick={startRecording}
+                  onPointerDown={handleVoicePressStart}
+                  onPointerMove={handleVoicePressMove}
+                  onPointerUp={handleVoicePressEnd}
+                  onPointerLeave={handleVoicePressEnd}
+                  onPointerCancel={handleVoicePressEnd}
                   aria-label={isRecording ? 'Stop recording' : 'Start recording'}
                 >
                   <IconMic />
