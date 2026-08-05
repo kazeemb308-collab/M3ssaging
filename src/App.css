@@ -1001,10 +1001,14 @@ html, body, #root {
 .composer-input-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto auto;
-  gap: 4px;
+  gap: 6px;
   align-items: center;
   width: 100%;
   min-width: 0;
+}
+
+.composer-input-row.has-text {
+  grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
 .composer-reply-preview {
@@ -1032,19 +1036,19 @@ html, body, #root {
 }
 
 .composer-action {
-  width: auto;
-  height: auto;
+  width: 32px;
+  height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   background: transparent;
   color: rgba(55, 65, 81, 0.72);
   border: none;
-  border-radius: 0;
+  border-radius: 12px;
   font-size: 0.88rem;
   flex-shrink: 0;
   box-shadow: none;
-  padding: 1px 2px;
+  padding: 0;
   min-height: 0;
   justify-self: center;
   opacity: 0.92;
@@ -1055,30 +1059,29 @@ html, body, #root {
 }
 
 .composer-action svg,
-.composer-send-btn svg,
-.composer-send-btn.muted svg {
-  width: 17px;
-  height: 17px;
+.composer-send-btn svg {
+  width: 18px;
+  height: 18px;
   display: block;
   stroke: currentColor;
   fill: none;
-  stroke-width: 1.7;
+  stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
 .composer-send-btn {
-  width: 30px;
-  height: 30px;
-  border-radius: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
   display: grid;
   place-items: center;
   padding: 0;
-  min-height: 30px;
-  background: transparent;
-  color: rgba(17, 24, 39, 0.8);
+  min-height: 40px;
+  background: #25d366;
+  color: #ffffff;
   border: none;
-  box-shadow: none;
+  box-shadow: 0 4px 12px rgba(37, 211, 102, 0.25);
   font-size: 1rem;
   flex-shrink: 0;
   justify-self: center;
@@ -1086,16 +1089,6 @@ html, body, #root {
   transform: translateX(0) scale(1);
   transition: transform 180ms ease, opacity 180ms ease;
   animation: composerSendReveal 180ms ease;
-}
-
-.composer-send-btn.muted {
-  background: transparent;
-  color: rgba(55, 65, 81, 0.8);
-  box-shadow: none;
-  border: none;
-  opacity: 0.9;
-  transform: translateX(0) scale(0.96);
-  transition: transform 180ms ease, opacity 180ms ease;
 }
 
 @keyframes composerSendReveal {

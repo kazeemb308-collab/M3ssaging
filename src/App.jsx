@@ -245,13 +245,6 @@ function App() {
     </svg>
   )
 
-  const IconPencil = () => (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M4 16.5V20h3.5L17.5 9l-3.5-3.5L4 16.5Z" />
-      <path d="M13.5 5.5 17 9" />
-    </svg>
-  )
-
   useEffect(() => {
     syncMessageInputHeight()
   }, [draft])
@@ -2408,7 +2401,7 @@ function App() {
               }
             }}
           />
-          <div className="composer-input-row">
+          <div className={`composer-input-row ${draft.trim() ? 'has-text' : ''}`}>
             <button className="composer-action" type="button" onClick={() => galleryInputRef.current?.click()} aria-label="Attach file">
               <IconUpload />
             </button>
@@ -2472,21 +2465,22 @@ function App() {
               spellCheck="false"
               inputMode="text"
             />
-            <button className="composer-action" type="button" onClick={() => cameraInputRef.current?.click()} aria-label="Take photo">
-              <IconCamera />
-            </button>
-            <button
-              className={`composer-action ${isRecording ? 'recording' : ''}`}
-              type="button"
-              onClick={startRecording}
-              aria-label={isRecording ? 'Stop recording' : 'Start recording'}
-            >
-              <IconMic />
-            </button>
             {draft.trim() ? (
               <button className="composer-send-btn" type="submit" aria-label="Send message"><IconSend /></button>
             ) : (
-              <button className="composer-send-btn muted" type="button" aria-label="Add message" onClick={() => messageInputRef.current?.focus()}><IconPencil /></button>
+              <>
+                <button className="composer-action" type="button" onClick={() => cameraInputRef.current?.click()} aria-label="Take photo">
+                  <IconCamera />
+                </button>
+                <button
+                  className={`composer-action ${isRecording ? 'recording' : ''}`}
+                  type="button"
+                  onClick={startRecording}
+                  aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+                >
+                  <IconMic />
+                </button>
+              </>
             )}
           </div>
         </form>
