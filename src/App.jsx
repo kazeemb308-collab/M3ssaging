@@ -378,14 +378,21 @@ function App() {
     }
 
     const updatedMessage = toggleMessageReaction(message, emoji, profile.name)
-    const nextMessages = updateMessageByIdentity(messages, message, { reactions: updatedMessage.reactions })
-    setMessages(nextMessages)
+
+    setMessages((currentMessages) => {
+      const nextMessages = Array.isArray(currentMessages)
+        ? updateMessageByIdentity(currentMessages, message, { reactions: updatedMessage.reactions })
+        : []
+
+      if (typeof window !== 'undefined') {
+        persistMessages(normalizedRoomId, nextMessages, window.localStorage)
+      }
+
+      return nextMessages
+    })
+
     setReactionMenuMessage(null)
     setActiveMessageAction(null)
-
-    if (typeof window !== 'undefined') {
-      persistMessages(normalizedRoomId, nextMessages, window.localStorage)
-    }
 
     try {
       await fetch('/api/messages', {
