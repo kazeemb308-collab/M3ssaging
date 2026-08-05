@@ -938,14 +938,6 @@ function App() {
       ...options,
     }
 
-    if ('serviceWorker' in navigator) {
-      const registration = await navigator.serviceWorker.getRegistration()
-      if (registration) {
-        registration.showNotification(title, notificationOptions)
-        return
-      }
-    }
-
     try {
       new Notification(title, notificationOptions)
     } catch {
