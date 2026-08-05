@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { firebaseReady, loadFirebaseServices } from './firebase'
 import './App.css'
-import { applyDeliveredReceipts, applyReadReceipts, getMessageStatus, hydrateMessagesWithAttachments, isPresenceFresh, mergeMessages, persistMessages, removeMessagesByIdentity, retryAsync, updateMessageByIdentity } from './messageUtils'
+import { applyDeliveredReceipts, applyReadReceipts, getMessageStatus, hydrateMessagesWithAttachments, isPresenceFresh, mergeMessages, mergeRemoteMessageSet, persistMessages, removeMessagesByIdentity, retryAsync, updateMessageByIdentity } from './messageUtils'
 
 const demoMessages = [
   {
@@ -199,9 +199,57 @@ function App() {
       return
     }
 
+    const previousHeight = input.style.height
     input.style.height = 'auto'
-    input.style.height = `${Math.min(input.scrollHeight, 120)}px`
+    const nextHeight = Math.min(input.scrollHeight, 120)
+    input.style.height = `${nextHeight}px`
+
+    if (previousHeight !== input.style.height && messageListRef.current) {
+      window.requestAnimationFrame(() => {
+        messageListRef.current?.scrollTo({
+          top: messageListRef.current.scrollHeight,
+          behavior: 'instant',
+        })
+      })
+    }
   }
+
+  const IconUpload = () => (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M12 16V4M8.5 7.5 12 4l3.5 3.5" />
+      <path d="M4 16.5v1.75A1.75 1.75 0 0 0 5.75 20h12.5A1.75 1.75 0 0 0 20 18.25V16.5" />
+    </svg>
+  )
+
+  const IconCamera = () => (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h2.2l1.2-1.8A1 1 0 0 1 10.8 4h2.4a1 1 0 0 1 .9.6L15.3 6h2.2A2.5 2.5 0 0 1 20 8.5v8A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-8Z" />
+      <circle cx="12" cy="12.5" r="3.25" />
+    </svg>
+  )
+
+  const IconMic = () => (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M12 3.5a3 3 0 0 1 3 3V12a3 3 0 1 1-6 0V6.5a3 3 0 0 1 3-3Z" />
+      <path d="M6 11.5a6 6 0 0 0 12 0" />
+      <path d="M12 17.5v3" />
+      <path d="M9 20.5h6" />
+    </svg>
+  )
+
+  const IconSend = () => (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M5 12.5 18.5 4 15.5 20l-3.4-5.4L5 12.5Z" />
+      <path d="M15.5 20 12 12.5" />
+    </svg>
+  )
+
+  const IconPencil = () => (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M4 16.5V20h3.5L17.5 9l-3.5-3.5L4 16.5Z" />
+      <path d="M13.5 5.5 17 9" />
+    </svg>
+  )
 
   useEffect(() => {
     syncMessageInputHeight()
@@ -1387,6 +1435,9 @@ function App() {
         if (presencePoller) {
           window.clearInterval(presencePoller)
         }
+        if (messageSyncPoller) {
+          window.clearInterval(messageSyncPoller)
+        }
         channelRef.current?.close()
         channelRef.current = null
       }
@@ -1402,7 +1453,7 @@ function App() {
         }
 
         if (payload.type === 'message-sync') {
-          setMessages((currentMessages) => mergeMessages(currentMessages, payload.messages || []))
+          setMessages((currentMessages) => mergeRemoteMessageSet(currentMessages, payload.messages || []))
           return
         }
 
@@ -1438,6 +1489,21 @@ function App() {
       void syncPresenceFromApi(normalizedRoomId)
     }, 5000)
 
+    const messageSyncPoller = window.setInterval(() => {
+      void syncMessagesFromApi(normalizedRoomId).then((remoteMessages) => {
+        if (!remoteMessages.length) {
+          return
+        }
+
+        setMessages((currentMessages) => {
+          const mergedMessages = mergeRemoteMessageSet(currentMessages, remoteMessages)
+          persistMessages(normalizedRoomId, mergedMessages, window.localStorage)
+          return mergedMessages
+        })
+        void markIncomingMessagesRead(remoteMessages)
+      })
+    }, 5000)
+
     void syncPresenceFromApi(normalizedRoomId)
 
     if (channel) {
@@ -1447,7 +1513,7 @@ function App() {
         }
 
         if (event.data.type === 'message-sync') {
-          setMessages((currentMessages) => mergeMessages(currentMessages, event.data.messages))
+          setMessages((currentMessages) => mergeRemoteMessageSet(currentMessages, event.data.messages || []))
           return
         }
 
@@ -1510,6 +1576,12 @@ function App() {
       }
       if (presencePoller) {
         window.clearInterval(presencePoller)
+      }
+      if (messageSyncPoller) {
+        window.clearInterval(messageSyncPoller)
+      }
+      if (messageSyncPoller) {
+        window.clearInterval(messageSyncPoller)
       }
       window.removeEventListener('pagehide', handlePageHide)
       window.removeEventListener('beforeunload', handleBeforeUnload)
@@ -2218,10 +2290,10 @@ function App() {
           />
           <div className="composer-input-row">
             <button className="composer-action" type="button" onClick={() => galleryInputRef.current?.click()} aria-label="Attach file">
-              📎
+              <IconUpload />
             </button>
             <button className="composer-action" type="button" onClick={() => cameraInputRef.current?.click()} aria-label="Take photo">
-              📷
+              <IconCamera />
             </button>
             <button
               className="composer-action"
@@ -2229,7 +2301,7 @@ function App() {
               onClick={startRecording}
               aria-label={isRecording ? 'Stop recording' : 'Start recording'}
             >
-              {isRecording ? '⬇️' : '🎤'}
+              <IconMic />
             </button>
             <textarea
               ref={messageInputRef}
@@ -2245,21 +2317,40 @@ function App() {
                   return
                 }
 
-                if (event.shiftKey) {
+                if (event.metaKey || event.ctrlKey) {
+                  event.preventDefault()
+                  void sendMessage(event)
                   return
                 }
 
                 event.preventDefault()
-                void sendMessage(event)
+                const textarea = event.currentTarget
+                const start = textarea.selectionStart
+                const end = textarea.selectionEnd
+                const nextValue = `${draft.slice(0, start)}\n${draft.slice(end)}`
+                setDraft(nextValue)
+                window.requestAnimationFrame(() => {
+                  textarea.selectionStart = start + 1
+                  textarea.selectionEnd = start + 1
+                  syncMessageInputHeight()
+                })
               }}
               onFocus={() => {
                 syncMessageInputHeight()
                 window.setTimeout(() => {
-                  messageListRef.current?.scrollTo({
-                    top: messageListRef.current.scrollHeight,
-                    behavior: 'smooth',
-                  })
-                }, 100)
+                  if (!messageListRef.current) {
+                    return
+                  }
+
+                  const scrollContainer = messageListRef.current
+                  const distanceFromBottom = scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight
+                  if (distanceFromBottom < 120) {
+                    scrollContainer.scrollTo({
+                      top: scrollContainer.scrollHeight,
+                      behavior: 'instant',
+                    })
+                  }
+                }, 80)
               }}
               onInput={(event) => {
                 syncMessageInputHeight()
@@ -2272,7 +2363,11 @@ function App() {
               spellCheck="false"
               inputMode="text"
             />
-            <button className="composer-send-btn" type="submit" aria-label="Send message">➤</button>
+            {draft.trim() ? (
+              <button className="composer-send-btn" type="submit" aria-label="Send message"><IconSend /></button>
+            ) : (
+              <button className="composer-send-btn muted" type="button" aria-label="Add message" onClick={() => messageInputRef.current?.focus()}><IconPencil /></button>
+            )}
           </div>
         </form>
       </main>

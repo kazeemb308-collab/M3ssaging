@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyDeliveredReceipts, applyReadReceipts, getMessageStatus, isPresenceFresh, mergeMessages, persistMessages, retryAsync } from './messageUtils.js'
+import { applyDeliveredReceipts, applyReadReceipts, getMessageStatus, isPresenceFresh, mergeMessages, mergeRemoteMessageSet, persistMessages, retryAsync } from './messageUtils.js'
 
 test('deduplicates optimistic messages when the server resolves them with the same clientId', () => {
   const optimisticMessage = {
@@ -29,6 +29,24 @@ test('deduplicates optimistic messages when the server resolves them with the sa
   assert.equal(result[0].id, 'server-1')
   assert.equal(result[0].clientId, 'client-1')
   assert.equal(result[0].read, true)
+})
+
+test('merges incoming room payloads without dropping existing history or empty entries', () => {
+  const existing = [
+    { id: 'welcome', senderId: 'system', senderName: 'M3ssaging', text: 'Welcome', timestamp: 1 },
+  ]
+
+  const incoming = [
+    { id: 'msg-1', senderId: 'them', senderName: 'Them', text: 'Hi there', timestamp: 2 },
+    null,
+    undefined,
+    { id: 'msg-2', senderId: 'me', senderName: 'Me', text: 'Hey', timestamp: 3 },
+  ]
+
+  const result = mergeRemoteMessageSet(existing, incoming)
+
+  assert.equal(result.length, 3)
+  assert.deepEqual(result.map((message) => message.id), ['welcome', 'msg-1', 'msg-2'])
 })
 
 test('marks matching message ids as read without mutating unrelated messages', () => {

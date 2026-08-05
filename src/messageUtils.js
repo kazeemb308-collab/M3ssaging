@@ -42,6 +42,10 @@ export function mergeMessages(existingMessages = [], incomingMessages = []) {
   }
 
   for (const message of [...existingMessages, ...incomingMessages]) {
+    if (!message || typeof message !== 'object') {
+      continue
+    }
+
     const key = buildKey(message)
     const currentIndex = indexByKey.get(key)
 
@@ -64,6 +68,11 @@ export function mergeMessages(existingMessages = [], incomingMessages = []) {
   }
 
   return sortMessages(nextMessages)
+}
+
+export function mergeRemoteMessageSet(existingMessages = [], incomingMessages = []) {
+  const safeIncomingMessages = Array.isArray(incomingMessages) ? incomingMessages.filter((message) => message && typeof message === 'object') : []
+  return mergeMessages(existingMessages, safeIncomingMessages)
 }
 
 function buildMessageIdentitySet(messageIds = []) {
