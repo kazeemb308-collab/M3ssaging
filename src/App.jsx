@@ -1896,12 +1896,6 @@ function App() {
       const viewportHeight = window.visualViewport?.height || window.innerHeight || 1
       const vhValue = `${viewportHeight * 0.01}px`
       document.documentElement.style.setProperty('--app-vh', vhValue)
-      document.body.style.height = `${viewportHeight}px`
-      document.body.style.minHeight = `${viewportHeight}px`
-      if (document.getElementById('root')) {
-        document.getElementById('root').style.height = `${viewportHeight}px`
-        document.getElementById('root').style.minHeight = `${viewportHeight}px`
-      }
     }
 
     const handleViewportResize = () => {
