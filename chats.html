@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Chats</title>
+
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+
+<div class="phone-app">
+
+    <!-- HEADER -->
+
+    <header class="app-header">
+
+        <h1>Chats</h1>
+
+        <div class="header-actions">
+
+            <button onclick="searchChats()">
+                🔍
+            </button>
+
+            <button onclick="openMenu()">
+                ⋮
+            </button>
+
+        </div>
+
+    </header>
+
+
+    <!-- CHAT FILTERS -->
+
+    <div class="chat-tabs">
+
+        <button class="active">
+            All
+        </button>
+
+        <button>
+            Unread
+        </button>
+
+        <button>
+            Favorites
+        </button>
+
+        <button>
+            Groups
+        </button>
+
+    </div>
+
+
+    <!-- CHAT LIST -->
+
+    <main class="chat-list">
+
+        <!-- CHAT 1 -->
+
+        <div
+            class="chat-item"
+            onclick="openChat('Oluwatosin')"
+        >
+
+            <div class="avatar">
+                👩🏾
+            </div>
+
+            <div class="chat-details">
+
+                <div class="chat-top">
+
+                    <h3>
+                        Oluwatosin
+                    </h3>
+
+                    <span>
+                        9:41 AM
+                    </span>
+
+                </div>
+
+                <div class="chat-bottom">
+
+                    <p>
+                        Hey! How are you doing?
+                    </p>
+
+                    <span class="unread">
+                        2
+                    </span>
+
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <!-- GROUP -->
+
+        <div class="chat-item">
+
+            <div class="avatar group-avatar">
+                👥
+            </div>
+
+            <div class="chat-details">
+
+                <div class="chat-top">
+
+                    <h3>
+                        Development Team
+                    </h3>
+
+                    <span>
+                        9:20 AM
+                    </span>
+
+                </div>
+
+                <div class="chat-bottom">
+
+                    <p>
+                        Basit: Don't forget the meeting tomorrow.
+                    </p>
+
+                    <span class="unread">
+                        5
+                    </span>
+
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <!-- CHAT 3 -->
+
+        <div class="chat-item">
+
+            <div class="avatar">
+                👨🏾
+            </div>
+
+            <div class="chat-details">
+
+                <div class="chat-top">
+
+                    <h3>
+                        Abdullahi
+                    </h3>
+
+                    <span>
+                        8:35 AM
+                    </span>
+
+                </div>
+
+                <div class="chat-bottom">
+
+                    <p>
+                        Okay, I will send it now.
+                    </p>
+
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <!-- FAMILY -->
+
+        <div class="chat-item">
+
+            <div class="avatar">
+                👨‍👩‍👧
+            </div>
+
+            <div class="chat-details">
+
+                <div class="chat-top">
+
+                    <h3>
+                        Family Group
+                    </h3>
+
+                    <span>
+                        Yesterday
+                    </span>
+
+                </div>
+
+                <div class="chat-bottom">
+
+                    <p>
+                        Amma: We're coming over this weekend.
+                    </p>
+
+                    <span class="unread">
+                        1
+                    </span>
+
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <!-- JANE -->
+
+        <div class="chat-item">
+
+            <div class="avatar">
+                👩🏾
+            </div>
+
+            <div class="chat-details">
+
+                <div class="chat-top">
+
+                    <h3>
+                        Jane
+                    </h3>
+
+                    <span>
+                        Yesterday
+                    </span>
+
+                </div>
+
+                <div class="chat-bottom">
+
+                    <p>
+                        Thanks! See you soon 😊
+                    </p>
+
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <!-- MICHAEL -->
+
+        <div class="chat-item">
+
+            <div class="avatar">
+                👨🏾
+            </div>
+
+            <div class="chat-details">
+
+                <div class="chat-top">
+
+                    <h3>
+                        Michael
+                    </h3>
+                    <span>
+                        Yesterday
+                    </span>
+                </div>
+                <div class="chat-bottom">
+                    <p>
+                        📷 Photo
+                    </p>
+                </div>
+            </div>
+        </div>
+    </main>
+    <!-- NEW CHAT BUTTON -->
+    <button
+        class="new-chat-button"
+        onclick="newChat()"
+    >
+        💬
+    </button>
+    <!-- BOTTOM NAVIGATION -->
+    <nav class="bottom-nav">
+        <button class="nav-item active">
+            <span>💬</span>
+            <small>Chats</small>
+        </button>
+        <button
+            class="nav-item"
+            onclick="alert('Calls page coming next')"
+        >
+            <span>📞</span>
+            <small>Calls</small>
+        </button>
+        <button
+            class="nav-item"
+            onclick="alert('Status page coming next')"
+        >
+            <span>◉</span>
+            <small>Status</small>
+
+        </button>
+        <button
+            class="nav-item"
+            onclick="alert('Contacts page coming next')"
+        >
+            <span>👤</span>
+            <small>Contacts</small>
+        </button>
+    </nav>
+</div>
+<script src="js/app.js"></script>
+</body>
+</html>

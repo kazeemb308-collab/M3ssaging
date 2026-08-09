@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Group Info</title>
+
+    <link rel="stylesheet" href="css/style.css">
+
+</head>
+
+<body>
+
+<div class="phone-app">
+
+    <header class="simple-header">
+
+        <button onclick="goBack()">←</button>
+
+        <h2>Group Info</h2>
+
+        <button>⋮</button>
+
+    </header>
+
+
+    <main class="group-info-page">
+
+
+        <div class="group-info-photo">
+            👥
+        </div>
+
+
+        <h2>
+            Development Team
+        </h2>
+
+        <p class="group-description">
+            5 participants
+        </p>
+
+
+        <div class="group-info-actions">
+
+            <button onclick="startCall()">
+                <span>📞</span>
+                Call
+            </button>
+
+            <button onclick="startVideoCall()">
+                <span>📹</span>
+                Video
+            </button>
+
+            <button onclick="addParticipant()">
+                <span>👤</span>
+                Add
+            </button>
+
+        </div>
+
+
+        <div class="info-section">
+
+            <h4>
+                Participants
+            </h4>
+
+
+            <div class="participant">
+
+                <div class="avatar">
+                    👤
+                </div>
+
+                <div>
+                    <h3>
+                        You
+                    </h3>
+
+                    <p>
+                        Group admin
+                    </p>
+                </div>
+
+            </div>
+
+
+            <div class="participant">
+
+                <div class="avatar">
+                    👩🏾
+                </div>
+
+                <div>
+                    <h3>
+                        Oluwatosin
+                    </h3>
+
+                    <p>
+                        Available
+                    </p>
+                </div>
+
+            </div>
+
+
+            <div class="participant">
+
+                <div class="avatar">
+                    👨🏾
+                </div>
+
+                <div>
+                    <h3>
+                        Abdullahi
+                    </h3>
+
+                    <p>
+                        Available
+                    </p>
+                </div>
+
+            </div>
+
+
+            <div class="participant">
+
+                <div class="avatar">
+                    👩🏾
+                </div>
+
+                <div>
+                    <h3>
+                        Jane
+                    </h3>
+
+                    <p>
+                        Busy
+                    </p>
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <button
+            class="danger-button"
+            onclick="leaveGroup()"
+        >
+            Exit Group
+        </button>
+
+    </main>
+
+</div>
+
+<script src="js/app.js"></script>
+
+</body>
+</html>

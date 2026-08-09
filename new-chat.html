@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>New Chat</title>
+
+    <link rel="stylesheet" href="css/style.css">
+
+</head>
+
+<body>
+
+<div class="phone-app">
+
+    <header class="simple-header">
+
+        <button onclick="goBack()">←</button>
+
+        <h2>New Chat</h2>
+
+        <button onclick="searchContacts()">🔍</button>
+
+    </header>
+
+
+    <main class="new-chat-list">
+
+
+        <div
+            class="new-chat-action"
+            onclick="createGroup()"
+        >
+
+            <div class="new-chat-icon">
+                👥
+            </div>
+
+            <div>
+
+                <h3>
+                    New Group
+                </h3>
+
+                <p>
+                    Create a group
+                </p>
+
+            </div>
+
+        </div>
+
+
+        <div
+            class="new-chat-action"
+            onclick="createContact()"
+        >
+
+            <div class="new-chat-icon">
+                👤
+            </div>
+
+            <div>
+
+                <h3>
+                    New Contact
+                </h3>
+
+                <p>
+                    Add a new contact
+                </p>
+
+            </div>
+
+        </div>
+
+
+        <h4 class="section-title">
+            Contacts on this app
+        </h4>
+
+
+        <div
+            class="contact-item"
+            onclick="openChat('Oluwatosin')"
+        >
+
+            <div class="avatar">
+                👩🏾
+            </div>
+
+            <div class="contact-details">
+
+                <h3>
+                    Oluwatosin
+                </h3>
+
+                <p>
+                    Available
+                </p>
+
+            </div>
+
+        </div>
+
+
+        <div
+            class="contact-item"
+            onclick="openChat('Abdullahi')"
+        >
+
+            <div class="avatar">
+                👨🏾
+            </div>
+
+            <div class="contact-details">
+
+                <h3>
+                    Abdullahi
+                </h3>
+
+                <p>
+                    Hey there!
+                </p>
+
+            </div>
+
+        </div>
+
+
+        <div
+            class="contact-item"
+            onclick="openChat('Jane')"
+        >
+
+            <div class="avatar">
+                👩🏾
+            </div>
+
+            <div class="contact-details">
+
+                <h3>
+                    Jane
+                </h3>
+
+                <p>
+                    Busy
+                </p>
+
+            </div>
+
+        </div>
+
+
+        <div
+            class="contact-item"
+            onclick="openChat('Michael')"
+        >
+
+            <div class="avatar">
+                👨🏾
+            </div>
+
+            <div class="contact-details">
+
+                <h3>
+                    Michael
+                </h3>
+
+                <p>
+                    Available
+                </p>
+
+            </div>
+
+        </div>
+
+    </main>
+
+</div>
+
+<script src="js/app.js"></script>
+
+</body>
+</html>
