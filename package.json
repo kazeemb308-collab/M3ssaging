@@ -1,0 +1,13 @@
+{
+  "name": "m3ssaging",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Me and You — fast WhatsApp-style messaging web app",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
