@@ -3,12 +3,15 @@ const path = require('path');
 
 const app = express();
 const port = process.env.PORT || 3000;
-const publicDir = path.join(__dirname, 'public');
+const publicDir = __dirname;
 
 app.disable('x-powered-by');
-app.use(express.static(publicDir, { etag: true, maxAge: '1h' }));
 
-// SPA fallback: navigation stays inside the same app shell.
+// Serve the actual M3ssaging app from the repository root.
+// The old server pointed at /public, which contained the previous demo app.
+app.use(express.static(publicDir, { etag: true, maxAge: 0 }));
+
+// SPA fallback: every browser navigation gets the current root index.html.
 app.get('*', (req, res) => {
   res.sendFile(path.join(publicDir, 'index.html'));
 });
