@@ -1,0 +1,9 @@
+{
+  "name": "Me and You",
+  "short_name": "Me & You",
+  "start_url": "/chats",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#075e54",
+  "icons": []
+}
